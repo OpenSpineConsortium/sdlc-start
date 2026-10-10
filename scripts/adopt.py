@@ -850,7 +850,9 @@ def changes_section(manifest):
         parts += ["Not written:", ""]
         parts += [f"- {paths}: {why}" for paths, why in by_reason(manifest["skipped"])]
         parts.append("")
-    parts += ["LICENSE is not touched: licensing your project is your decision, so the template's is not copied.", ""]
+    parts += ["LICENSE is not touched: licensing your project is your decision, so the template's is not copied; the files"
+             " this pull request brings are offered under the MIT License, whose text is LICENSE in"
+             f" {FRONT_DOOR}.", ""]
     return parts
 
 
