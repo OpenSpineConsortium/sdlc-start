@@ -16,9 +16,12 @@
          existing is the protocol only, the files the template's guide
          for a repository it did not make has a person copy by hand, so
          the template's tests, checks and documents never meet the
-         person's; nothing there is overwritten, CLAUDE.md gains one
-         section and .claude/settings.json the two keys that enable the
-         sdlc plugin.
+         person's; nothing there is overwritten, a workflow and the
+         script it runs come together or not at all, a file the
+         repository ignores is never written, the protocol's text is the
+         library's spec when --protocol-spec names it, CLAUDE.md gains
+         one section once that text has landed, and .claude/settings.json
+         the keys that enable the sdlc plugin.
   body   prints the pull request's text from the manifest, or with
          --title its title.
   labels prints the board's labels, read from the template's own list.
@@ -82,10 +85,25 @@ PROTOCOL_FILES = (
     "docs/agents/claims/README.md",
 )
 PROTOCOL_TEXT = "docs/agents/PROTOCOL.md"
-PROTOCOL_SPEC = "tools/sdlc_protocol/spec/PROTOCOL.md"
+VENDORED = "tools/VENDORED"
+BOARD_WORKFLOW = ".github/workflows/board.yml"
+METRICS_WORKFLOW = ".github/workflows/metrics.yml"
 # The template's field metrics, copied in both modes once it carries both.
-METRICS_FILES = (".github/workflows/metrics.yml", "tools/metrics.py")
+METRICS_FILES = (METRICS_WORKFLOW, "tools/metrics.py")
 SWITCH = ".github/sdlc-metrics"
+# Mode existing brings a workflow and the script it runs together or not
+# at all: the template's workflow would run a script of theirs by the same
+# name, with contents: write, and theirs would run the template's. The
+# vendored library and its record are one unit the same way, so a release's
+# modules never lie next to an older copy's.
+UNITS = (
+    ("the board's workflow and its script", (BOARD_WORKFLOW, "tools/board.py")),
+    ("the metrics workflow and its script", METRICS_FILES),
+)
+LIBRARY_UNIT = "the vendored library and its record"
+# A file the repository ignores is committed only by force, and git then
+# replaces each person's own copy of it on their next pull without a word.
+IGNORED_WHY = "ignored by this repository, so each person's own copy would be replaced on pull"
 CLAUDE_MD = "CLAUDE.md"
 SETTINGS = ".claude/settings.json"
 # Team mode's labels need the template's other workflows, which mode
@@ -284,28 +302,43 @@ def read_plan(staging):
     return {rel: ((staging / rel).read_bytes(), bool((staging / rel).stat().st_mode & 0o111)) for rel in files}
 
 
-def protocol_plan(staged):
+def read_spec(options):
+    """The library's spec/PROTOCOL.md as a plan entry when --protocol-spec
+    names it, else None. The vendored copy never carries the spec, so the
+    workflow clones the public library at the commit tools/VENDORED names
+    and passes the file; without it mode existing falls back to the
+    template's own page, which names files only a copy of the template
+    has, and the body says so."""
+    if options.protocol_spec is None:
+        return None
+    path = Path(options.protocol_spec)
+    if path.is_symlink() or not path.is_file():
+        raise AdoptError("--protocol-spec is not a file")
+    return path.read_bytes(), False
+
+
+def protocol_plan(staged, spec):
     """Mode existing's files out of the staged tree, and where the protocol's
-    text came from: the vendored library's spec when the copy carries it,
-    the template's own filled page otherwise."""
+    text came from: the library's spec when one was passed, the template's
+    own filled page otherwise."""
     plan = {rel: entry for rel, entry in staged.items() if rel.startswith(PROTOCOL_TREE + "/")}
     for rel in PROTOCOL_FILES:
         if rel not in staged:
             raise AdoptError(f"the template has no {rel}")
         plan[rel] = staged[rel]
-    source = PROTOCOL_SPEC if PROTOCOL_SPEC in staged else PROTOCOL_TEXT
-    if source not in staged:
+    if spec is None and PROTOCOL_TEXT not in staged:
         raise AdoptError(f"the template has no {PROTOCOL_TEXT}")
-    plan[PROTOCOL_TEXT] = staged[source]
+    plan[PROTOCOL_TEXT] = staged[PROTOCOL_TEXT] if spec is None else spec
     if all(rel in staged for rel in METRICS_FILES):
         plan.update({rel: staged[rel] for rel in METRICS_FILES})
     plan[SWITCH] = staged[SWITCH]
-    return plan, ("spec" if source == PROTOCOL_SPEC else "template")
+    return plan, ("template" if spec is None else "spec")
 
 
 def staged_plan(template, options):
     """What goes into the target, staged and filled in a scratch folder that
     lies in neither tree."""
+    spec = read_spec(options)
     files, links = template_files(template)
     with tempfile.TemporaryDirectory(prefix="sdlc-adopt-") as scratch:
         staging = Path(scratch) / "tree"
@@ -319,7 +352,7 @@ def staged_plan(template, options):
         staged = read_plan(staging)
     if options.mode == "new":
         return staged, links, "template"
-    plan, text = protocol_plan(staged)
+    plan, text = protocol_plan(staged, spec)
     return plan, links, text
 
 
@@ -405,6 +438,57 @@ def exists(path):
     return path.is_symlink() or path.exists()
 
 
+def is_checkout(target):
+    """Whether target is the top of a git checkout, where ignore rules
+    apply; a plain folder has none."""
+    if not exists(target / ".git"):
+        return False
+    done = subprocess.run(["git", "-C", str(target), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    return done.returncode == 0 and os.path.realpath(done.stdout.strip()) == os.path.realpath(target)
+
+
+def ignored_paths(target, rels):
+    """Those of rels that the target's ignore rules match; a file git tracks
+    is never among them, whatever the rules say."""
+    if not is_checkout(target):
+        return set()
+    done = subprocess.run(["git", "-C", str(target), "check-ignore", "-z", "--stdin"],
+                          input="\0".join(rels), capture_output=True, text=True)
+    if done.returncode not in (0, 1):  # 0 names some of them, 1 names none
+        last = (done.stderr.strip().splitlines() or ["no message"])[-1]
+        raise AdoptError(f"the repository's ignore rules could not be read: {last}")
+    return {rel for rel in done.stdout.split("\0") if rel}
+
+
+def in_the_way(target, rel, ignored):
+    """Why rel would not be added, as a clause about it, or None."""
+    if blocked(target, rel):
+        return "cannot be written here"
+    if exists(target / rel):
+        return "is this repository's own"
+    if rel in ignored:
+        return "is ignored by this repository"
+    return None
+
+
+def unit_holdbacks(target, plan, ignored):
+    """rel -> why, for each file of a unit that would be added while another
+    file of the unit is theirs, blocked or ignored: the unit is then left
+    whole, and the file that stands in the way is named."""
+    units = [(name, [rel for rel in files if rel in plan]) for name, files in UNITS]
+    units.append((LIBRARY_UNIT, [rel for rel in plan if rel.startswith(PROTOCOL_TREE + "/") or rel == VENDORED]))
+    held = {}
+    for name, files in units:
+        causes = {rel: in_the_way(target, rel, ignored) for rel in files}
+        standing = [rel for rel in files if causes[rel]]
+        if standing:
+            other = standing[0]
+            for rel in files:
+                if not causes[rel]:
+                    held[rel] = f"`{other}` {causes[other]}, and {name} are brought together or not at all"
+    return held
+
+
 def with_section(text):
     """Their CLAUDE.md with the section after it, in their line endings."""
     section = CLAUDE_SECTION
@@ -416,8 +500,30 @@ def with_section(text):
     return text + newline + section.encode("utf-8")
 
 
-def add_claude_section(target, manifest):
-    """Append the section to their CLAUDE.md, or make one with it."""
+def note_missing_protocol(manifest):
+    """Say why CLAUDE.md gains no section: the protocol's text did not land,
+    so there is nothing of the template's to import."""
+    if PROTOCOL_TEXT in manifest["kept"]:
+        cause = "is this repository's own and is kept"
+    else:
+        cause = "was not written (above)"
+    manifest["notes"].append(
+        f"`{PROTOCOL_TEXT}` {cause}, so the claim protocol's text did not land and `{CLAUDE_MD}` gains no section"
+        " importing it. The text is spec/PROTOCOL.md in the public OpenSpineConsortium/sdlc-protocol; once it"
+        f" stands at `{PROTOCOL_TEXT}`, add this to `{CLAUDE_MD}`:\n\n```markdown\n{CLAUDE_SECTION}```"
+    )
+
+
+def add_claude_section(target, manifest, ignored):
+    """Append the section to their CLAUDE.md, or make one with it, once the
+    protocol's text it imports has landed; an ignored CLAUDE.md is each
+    person's own and is left alone."""
+    if PROTOCOL_TEXT not in manifest["added"]:
+        note_missing_protocol(manifest)
+        return
+    if CLAUDE_MD in ignored:
+        record(manifest, CLAUDE_MD, "skipped", IGNORED_WHY)
+        return
     if not exists(target / CLAUDE_MD):
         record(manifest, CLAUDE_MD, *place(target, CLAUDE_MD, CLAUDE_SECTION.encode("utf-8"), False, False))
         return
@@ -462,11 +568,14 @@ def keys_appended(text, additions, indent):
 
 
 def merged_settings(text):
-    """Their settings with the marketplace and the plugin added; None when
+    """Their settings with the marketplace and the plugin added: the text,
+    what each key gained ("added" when the key is new, "extended" when it
+    took one entry) and whether the plugin ends up enabled; None when
     nothing changes. ValueError when it is not a JSON object of the shape
-    Claude Code reads. When the two keys are new, they are written after
-    their text, which stays as it was; otherwise, or when that would not
-    read back as the merge, the whole file is written again."""
+    Claude Code reads. When the keys are new, they are written after their
+    text, which stays as it was; otherwise, or when that would not read
+    back as the merge, the whole file is written again, in its own line
+    endings."""
     data = json.loads(text)
     if not isinstance(data, dict):
         raise ValueError("not an object")
@@ -476,18 +585,21 @@ def merged_settings(text):
         raise ValueError("extraKnownMarketplaces or enabledPlugins is not an object")
     if MARKETPLACE_NAME in markets and PLUGIN in plugins:
         return None
-    merged = dict(data)
+    merged, changed = dict(data), {}
     if MARKETPLACE_NAME not in markets:
         merged["extraKnownMarketplaces"] = {**markets, MARKETPLACE_NAME: MARKETPLACE}
+        changed["extraKnownMarketplaces"] = "extended" if "extraKnownMarketplaces" in data else "added"
     if PLUGIN not in plugins:
         merged["enabledPlugins"] = {**plugins, PLUGIN: True}
+        changed["enabledPlugins"] = "extended" if "enabledPlugins" in data else "added"
+    enabled = merged["enabledPlugins"].get(PLUGIN) is True
     indent = json_indent(text)
-    changed = {key: value for key, value in merged.items() if data.get(key) != value}
-    if all(key not in data for key in changed):
-        appended = keys_appended(text, changed, indent)
+    newline = "\r\n" if "\r\n" in text else "\n"
+    if all(state == "added" for state in changed.values()):
+        appended = keys_appended(text, {key: merged[key] for key in changed}, indent)
         if appended is not None and json.loads(appended) == merged:
-            return appended
-    return json.dumps(merged, indent=indent, ensure_ascii=False) + "\n"
+            return appended, changed, enabled
+    return (json.dumps(merged, indent=indent, ensure_ascii=False) + "\n").replace("\n", newline), changed, enabled
 
 
 def preset_settings():
@@ -495,11 +607,19 @@ def preset_settings():
                       indent=2) + "\n"
 
 
-def merge_settings(target, manifest):
-    """Add the two keys to their .claude/settings.json, keeping every key it
-    has; make the file when there is none; leave it when it does not parse."""
+def merge_settings(target, manifest, ignored):
+    """Add the keys to their .claude/settings.json, keeping every key it has;
+    make the file when there is none; leave it when it does not parse or
+    when the repository ignores it."""
+    if SETTINGS in ignored:
+        record(manifest, SETTINGS, "skipped", IGNORED_WHY)
+        return
     if not exists(target / SETTINGS):
-        record(manifest, SETTINGS, *place(target, SETTINGS, preset_settings().encode("ascii"), False, False))
+        outcome, why = place(target, SETTINGS, preset_settings().encode("ascii"), False, False)
+        record(manifest, SETTINGS, outcome, why)
+        if outcome == "added":
+            manifest["settings_changed"] = {"extraKnownMarketplaces": "added", "enabledPlugins": "added"}
+            manifest["plugin_enabled"] = True
         return
     real, why = existing_file(target, SETTINGS)
     if why:
@@ -515,8 +635,18 @@ def merge_settings(target, manifest):
     if merged is None:
         record(manifest, SETTINGS, "kept")
         return
-    real.write_text(merged, encoding="utf-8")
+    written, changed, enabled = merged
+    real.write_bytes(written.encode("utf-8"))
     manifest["merged"].append(SETTINGS)
+    manifest["settings_changed"] = changed
+    manifest["plugin_enabled"] = enabled
+
+
+def first_word(text):
+    """The switch as the template's tools/metrics.py reads it: the first
+    whitespace-separated word, lowercased; the rest of the file is prose."""
+    words = (text or "").split()
+    return words[0].lower() if words else ""
 
 
 def note_kept_switch(target, manifest, metrics):
@@ -525,9 +655,12 @@ def note_kept_switch(target, manifest, metrics):
     if SWITCH not in manifest["kept"]:
         return
     real, _ = existing_file(target, SWITCH)
-    said = real.read_text(encoding="utf-8", errors="replace").strip() if real else ""
+    said = first_word(real.read_text(encoding="utf-8", errors="replace")) if real else ""
     if said != metrics:
-        shown = f"`{said}`" if said in ("on", "off") else "something other than on or off"
+        if said in ("on", "off"):
+            shown = f"`{said}`"
+        else:
+            shown = "something other than on or off, which the metrics workflow reads as off"
         manifest["notes"].append(
             f"{SWITCH} was there already and says {shown}, where the form asked for `{metrics}`;"
             " it is kept, so edit it to change the choice."
@@ -573,12 +706,15 @@ def new_manifest(options, links, protocol_text, plan):
         "default_branch": options.default_branch,
         "owner_type": options.owner_type,
         "creator": options.creator,
-        "metrics_workflow": all(rel in plan for rel in METRICS_FILES),
+        "metrics_workflow": False,  # known once the files have landed
+        "metrics_in_template": all(rel in plan for rel in METRICS_FILES),
         "protocol_text": protocol_text,
         "added": [], "replaced": [], "kept": [], "merged": [],
         "skipped": [{"path": rel, "why": "a link in the template, which is never followed"} for rel in links],
         "notes": [],
         "settings_invalid": False,
+        "settings_changed": {},
+        "plugin_enabled": None,
     }
 
 
@@ -588,13 +724,24 @@ def adopt(options):
     template, target, manifest_path = checked_roots(options)
     plan, links, protocol_text = staged_plan(template, options)
     manifest = new_manifest(options, links, protocol_text, plan)
-    for rel in sorted(plan):
-        data, executable = plan[rel]
-        record(manifest, rel, *place(target, rel, data, executable, options.mode == "new"))
+    ignored, held = set(), {}
     if options.mode == "existing":
-        add_claude_section(target, manifest)
-        merge_settings(target, manifest)
+        ignored = ignored_paths(target, sorted(plan) + [CLAUDE_MD, SETTINGS])
+        held = unit_holdbacks(target, plan, ignored)
+    for rel in sorted(plan):
+        if rel in ignored:
+            record(manifest, rel, "skipped", IGNORED_WHY)
+        elif rel in held:
+            record(manifest, rel, "skipped", held[rel])
+        else:
+            data, executable = plan[rel]
+            record(manifest, rel, *place(target, rel, data, executable, options.mode == "new"))
+    if options.mode == "existing":
+        add_claude_section(target, manifest, ignored)
+        merge_settings(target, manifest, ignored)
         note_kept_switch(target, manifest, options.metrics)
+    landed = manifest["added"] + manifest["replaced"]
+    manifest["metrics_workflow"] = all(rel in landed for rel in METRICS_FILES)
     for key in ("added", "replaced", "kept", "merged"):
         manifest[key].sort()
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -642,15 +789,46 @@ def opening(manifest):
             f" yours is overwritten. {asked}")
 
 
+def key_phrase(key, changed):
+    return f"`{key}`" if changed[key] == "added" else f"an entry in `{key}`"
+
+
+def settings_line(manifest):
+    """What .claude/settings.json gained, naming only the keys it did and
+    the plugin's state when it stays off by their choice."""
+    changed = manifest["settings_changed"]
+    gained = []
+    if "extraKnownMarketplaces" in changed:
+        gained.append(f"{key_phrase('extraKnownMarketplaces', changed)}, which names the marketplace"
+                      " OpenSpineConsortium/sdlc-marketplace")
+    if "enabledPlugins" in changed:
+        gained.append(f"{key_phrase('enabledPlugins', changed)}, which enables its plugin `{PLUGIN}`")
+    line = f"- `{SETTINGS}` gains " + ", and ".join(gained)
+    if not manifest["plugin_enabled"]:
+        line += f"; its plugin `{PLUGIN}` stays off in `enabledPlugins`, as you set it"
+    return line + "; every key it had stays."
+
+
 def merged_lines(manifest):
     lines = []
     if CLAUDE_MD in manifest["merged"]:
         lines.append(f"- `{CLAUDE_MD}` gains the section \"How work is claimed\" at its end, whose `{CLAUDE_IMPORT}`"
                      " line imports the protocol into every session.")
     if SETTINGS in manifest["merged"]:
-        lines.append(f"- `{SETTINGS}` gains `extraKnownMarketplaces` and `enabledPlugins`, which name the marketplace"
-                     f" OpenSpineConsortium/sdlc-marketplace and enable its plugin `{PLUGIN}`; every key it had stays.")
+        lines.append(settings_line(manifest))
     return lines
+
+
+def by_reason(skipped):
+    """The paths not written, grouped under each reason in the order the
+    reasons first appear, as `a`, `b` and `c`."""
+    groups = {}
+    for item in skipped:
+        groups.setdefault(item["why"], []).append(f"`{item['path']}`")
+    listed = []
+    for why, paths in groups.items():
+        listed.append((", ".join(paths[:-1]) + " and " + paths[-1] if len(paths) > 1 else paths[0], why))
+    return listed
 
 
 def changes_section(manifest):
@@ -670,9 +848,30 @@ def changes_section(manifest):
         parts += ["Kept as they are, because this repository has them already:", "", path_list(manifest["kept"]), ""]
     if manifest["skipped"]:
         parts += ["Not written:", ""]
-        parts += [f"- `{item['path']}`: {item['why']}" for item in manifest["skipped"]]
+        parts += [f"- {paths}: {why}" for paths, why in by_reason(manifest["skipped"])]
         parts.append("")
     parts += ["LICENSE is not touched: licensing your project is your decision, so the template's is not copied.", ""]
+    return parts
+
+
+def ignored_notes(ignored):
+    """What to do about the files the repository ignores, which were not
+    written, each with what this pull request would have put there."""
+    parts = ["Files this repository ignores were not written, since git replaces each person's own copy of an"
+             " ignored file on their next pull without a word. Stop ignoring them and ask again on the form, or do"
+             " by hand what this pull request would have done:", ""]
+    if CLAUDE_MD in ignored:
+        parts += [f"- `{CLAUDE_MD}`: add this section to the `{CLAUDE_MD}` each session reads.", "",
+                  "```markdown", CLAUDE_SECTION.rstrip("\n"), "```", ""]
+    if SETTINGS in ignored:
+        parts += [f"- `{SETTINGS}`: each person adds the marketplace and installs the plugin once, with"
+                  " `claude plugin marketplace add OpenSpineConsortium/sdlc-marketplace` and"
+                  f" `claude plugin install {PLUGIN}`, or adds these keys to the settings file they keep.", "",
+                  "```json", preset_settings().rstrip("\n"), "```", ""]
+    others = [rel for rel in ignored if rel not in (CLAUDE_MD, SETTINGS)]
+    if others:
+        parts += ["- " + ", ".join(f"`{rel}`" for rel in others) + ": their content is not in this pull request;"
+                  " ask again once they are no longer ignored.", ""]
     return parts
 
 
@@ -682,9 +881,13 @@ def notes_section(manifest):
         parts += [f"`{SETTINGS}` does not parse as a JSON object, so it was left as it was. Add these two keys to it"
                   " by hand once it does, beside the keys it has:", "", "```json", preset_settings().rstrip("\n"),
                   "```", ""]
-    if manifest["mode"] == "existing" and manifest["protocol_text"] == "template":
+    templates_page = manifest["protocol_text"] == "template" and PROTOCOL_TEXT in manifest["added"]
+    if manifest["mode"] == "existing" and templates_page:
         parts += [f"`{PROTOCOL_TEXT}` is the template's own text, which also names files only a copy of the"
                   " template carries (its skills, routines and setup pages); the sdlc plugin brings the skills.", ""]
+    ignored = [item["path"] for item in manifest["skipped"] if item["why"] == IGNORED_WHY]
+    if ignored:
+        parts += ignored_notes(ignored)
     if manifest["mode"] == "new" and manifest["owner_type"] == "Organization":
         parts += [f"`.github/CODEOWNERS` names `{manifest['creator']}`, who asked for this pull request, because GitHub"
                   " asks a user or a team for review and never an organization; change it by pull request when"
@@ -699,10 +902,14 @@ def sharing_section(manifest):
         parts.append(f"Sharing of anonymous aggregates is on: `{SWITCH}` says `on`.")
         if manifest["metrics_workflow"]:
             parts.append("Once a day `.github/workflows/metrics.yml` writes METRICS.json to the branch `metrics`:"
-                         " counts, durations, rates and failure-type frequencies of the protocol at work, and never"
-                         " code, text, titles, logins, branch names or repository names. The OpenSpine SDLC App reads"
-                         " that branch's METRICS.json, and JUDGE.json if someone runs the judge on their own"
-                         " machine, and nothing else; the dataset names this repository only by a salted hash.")
+                         " counts, durations and rates of the protocol at work, and never code, text, titles,"
+                         " logins, branch names or repository names. The OpenSpine SDLC App reads that branch's"
+                         " METRICS.json, and JUDGE.json, the failure-type frequencies that someone's own judge"
+                         " writes when they run it on their own machine and Claude account, and nothing else; the"
+                         " dataset names this repository only by a salted hash.")
+        elif manifest["metrics_in_template"]:
+            parts.append("The metrics workflow was not written (above), so nothing is computed or shared today; the"
+                         " switch records your choice for when it is.")
         else:
             parts.append("The template does not carry its metrics workflow yet, so nothing is computed or shared"
                          " today; the switch records your choice for when it does.")
@@ -732,20 +939,32 @@ def next_steps_new(manifest):
 
 
 def next_steps_existing(manifest):
+    """The steps after the merge, said for the files that landed: a workflow
+    held back has no branch to protect against and renders no board."""
     repo = manifest["repository"]
-    forced = "`board` or `metrics`" if manifest["metrics_workflow"] else "`board`"
+    added = manifest["added"]
+    forced = [name for rel, name in ((BOARD_WORKFLOW, "`board`"), (METRICS_WORKFLOW, "`metrics`")) if rel in added]
+    protect = (f"3. Protect the default branch, and only it, at https://github.com/{repo}/settings/rules: require a"
+               " pull request and your own checks, and block force pushes and deletions.")
+    if forced:
+        protect += f" Never target {' or '.join(forced)}, which the workflows force-push."
+    if BOARD_WORKFLOW in added:
+        board = ("4. After the merge the next issue event renders the board at"
+                 f" https://github.com/{repo}/blob/board/STATE.md; `gh workflow run board.yml --repo {repo}` renders"
+                 " it now.")
+    else:
+        board = (f"4. `{BOARD_WORKFLOW}` was not written (above), so nothing renders the board until the board's"
+                 " workflow and its script are brought together by hand.")
+    protocol = PROTOCOL_TEXT if PROTOCOL_TEXT in added else "the sdlc plugin's claim protocol"
     return [
         "1. Read this pull request, then merge it.",
         "2. Each person who works here runs this once, after trusting the folder in Claude Code, since a project's"
         " settings name the plugin but do not download it: `claude plugin install sdlc@sdlc-marketplace --scope"
         " project`. `/sdlc:board` in a new session then prints the board.",
-        f"3. Protect the default branch, and only it, at https://github.com/{repo}/settings/rules: require a pull"
-        f" request and your own checks, and block force pushes and deletions. Never target {forced}, which the"
-        " workflows force-push.",
-        "4. After the merge the next issue event renders the board at"
-        f" https://github.com/{repo}/blob/board/STATE.md; `gh workflow run board.yml --repo {repo}` renders it now.",
+        protect,
+        board,
         "5. Claim the first issue: open one labelled todo, run `claude` in your clone and paste: \"Claim issue N with"
-        " /sdlc:claim and carry it to a ready pull request, as docs/agents/PROTOCOL.md says. Where the skill names"
+        f" /sdlc:claim and carry it to a ready pull request, as {protocol} says. Where the skill names"
         " bash scripts/check.sh, run this repository's own checks instead. Do not merge.\"",
     ]
 
@@ -830,6 +1049,8 @@ def parse_args(argv):
     applying.add_argument("--mode", required=True, choices=("new", "existing"))
     applying.add_argument("--metrics", required=True, choices=("on", "off"))
     applying.add_argument("--manifest", required=True, help="where to write the manifest, outside the target")
+    applying.add_argument("--protocol-spec", help="sdlc-protocol's spec/PROTOCOL.md, which mode existing writes as"
+                          " docs/agents/PROTOCOL.md; without it, the template's own page")
 
     body = commands.add_parser("body", help="the pull request's text from a manifest")
     body.add_argument("--manifest", required=True)

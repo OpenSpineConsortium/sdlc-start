@@ -1,11 +1,14 @@
 """apply in both modes, on fake trees and the template's real init script.
 
 Mode new must leave what "Use this template" would: every file filled, the
-marker folder gone, a blank checkpoint, a file of theirs the template also
-has replaced and listed. Mode existing must change nothing of theirs but
-CLAUDE.md, which gains one section, and .claude/settings.json, which gains
-two keys. Neither copies LICENSE, follows a link out of the template, or
-writes through a link out of the target or into its .git.
+marker folder gone, a blank checkpoint and an empty checkpoint block, a
+file of theirs the template also has replaced and listed. Mode existing
+must change nothing of theirs but CLAUDE.md, which gains one section once
+the protocol's text landed, and .claude/settings.json, which gains the
+keys it lacks; a workflow and its script come together or not at all, and
+a file the repository ignores is never written. Neither copies LICENSE,
+follows a link out of the template, or writes through a link out of the
+target or into its .git.
 """
 
 import json
@@ -14,10 +17,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from trees import (CREATOR, P, PROTOCOL_ADDED, SPEC, THEIR_CLAUDE, THEIR_FILES, THEIR_SETTINGS, THEIR_SETTINGS_TEXT,
-                   adopt, apply, make_target, make_template, snapshot, write)
+from trees import (CREATOR, EMPTY_LISTS, LIBRARY, P, PROTOCOL_ADDED, SPEC, THEIR_CLAUDE, THEIR_FILES, THEIR_SETTINGS,
+                   THEIR_SETTINGS_TEXT, adopt, apply, checkpoint_lists, make_checkout, make_target, make_template,
+                   snapshot, track, write)
 
 PLACEHOLDERS = tuple(P.values())
+BOARD = (".github/workflows/board.yml", "tools/board.py")
+NO_GIT = {rel: text for rel, text in THEIR_FILES.items() if not rel.startswith(".git/")}
 
 
 class Scratch(unittest.TestCase):
@@ -28,6 +34,9 @@ class Scratch(unittest.TestCase):
         self.template = self.root / "template"
         self.target = self.root / "target"
         self.manifest = self.root / "manifest.json"
+
+    def skipped(self, manifest):
+        return {item["path"]: item["why"] for item in manifest["skipped"]}
 
 
 class NewMode(Scratch):
@@ -58,6 +67,14 @@ class NewMode(Scratch):
         apply(self.template, self.target, self.manifest)
         self.assertFalse((self.target / ".template").exists())
         self.assertIn("Nothing has been checkpointed yet", (self.target / ".claude/session.md").read_text())
+
+    def test_the_checkpoint_block_is_emptied_and_the_rest_kept(self):
+        apply(self.template, self.target, self.manifest)
+        text = (self.target / "CLAUDE.md").read_text()
+        self.assertEqual(checkpoint_lists(text), EMPTY_LISTS)
+        self.assertNotIn("The template's own", text)
+        self.assertTrue(text.startswith("# widget\n\nThe template's instructions.\n\n<!-- cswap:checkpoint:begin -->\n"
+                                        "## Session checkpoint (kept by cswap)\n\nRead `.claude/session.md`"))
 
     def test_the_code_owner_is_the_owner_or_in_an_organization_the_creator(self):
         apply(self.template, self.target, self.manifest, owner_type="User")
@@ -95,6 +112,13 @@ class NewMode(Scratch):
         self.assertTrue(manifest["metrics_workflow"])
         self.assertIn(".github/workflows/metrics.yml", manifest["added"])
         self.assertIn("tools/metrics.py", manifest["added"])
+
+    def test_the_whole_template_takes_no_spec(self):
+        spec = write(self.root, "spec/PROTOCOL.md", SPEC)
+        _, manifest, _ = apply(self.template, self.target, self.manifest, protocol_spec=spec)
+        self.assertEqual(manifest["protocol_text"], "template")
+        self.assertEqual((self.target / "docs/agents/PROTOCOL.md").read_text(),
+                         "# How work is claimed\n\nThe queue is on octo-org/widget; pushes to main.\n")
 
     def test_a_link_of_theirs_is_replaced_never_written_through(self):
         outside = write(self.root, "outside/notes.md", "their notes\n")
@@ -134,7 +158,7 @@ class ExistingMode(Scratch):
         self.assertEqual((self.target / "CLAUDE.md").read_text(), THEIR_CLAUDE + "\n" + adopt.CLAUDE_SECTION)
 
     def test_the_settings_gain_two_keys_and_keep_theirs(self):
-        self.adopt_existing()
+        manifest = self.adopt_existing()
         text = (self.target / ".claude/settings.json").read_text()
         settings = json.loads(text)
         self.assertEqual(list(settings), ["permissions", "model", "extraKnownMarketplaces", "enabledPlugins"])
@@ -143,13 +167,36 @@ class ExistingMode(Scratch):
         self.assertEqual(settings["enabledPlugins"], {"sdlc@sdlc-marketplace": True})
         self.assertTrue(text.startswith(THEIR_SETTINGS_TEXT.rstrip()[:-1].rstrip() + ",\n"), "their lines stay")
         self.assertIn('\n    "enabledPlugins": {\n        "sdlc@sdlc-marketplace": true\n    }\n}\n', text)
+        self.assertEqual(manifest["settings_changed"], {"extraKnownMarketplaces": "added", "enabledPlugins": "added"})
+        self.assertTrue(manifest["plugin_enabled"])
 
     def test_a_merge_into_keys_they_have_writes_the_file_again(self):
         write(self.target, ".claude/settings.json", '{"enabledPlugins": {"other@market": true}}\n')
-        self.adopt_existing()
+        manifest = self.adopt_existing()
         settings = json.loads((self.target / ".claude/settings.json").read_text())
         self.assertEqual(settings["enabledPlugins"], {"other@market": True, "sdlc@sdlc-marketplace": True})
         self.assertIn("sdlc-marketplace", settings["extraKnownMarketplaces"])
+        self.assertEqual(manifest["settings_changed"],
+                         {"extraKnownMarketplaces": "added", "enabledPlugins": "extended"})
+
+    def test_a_plugin_they_turned_off_stays_off_when_the_marketplace_is_added(self):
+        write(self.target, ".claude/settings.json", '{"enabledPlugins": {"sdlc@sdlc-marketplace": false}}\n')
+        manifest = self.adopt_existing()
+        settings = json.loads((self.target / ".claude/settings.json").read_text())
+        self.assertEqual(settings["enabledPlugins"], {"sdlc@sdlc-marketplace": False})
+        self.assertEqual(manifest["settings_changed"], {"extraKnownMarketplaces": "added"})
+        self.assertFalse(manifest["plugin_enabled"])
+
+    def test_carriage_returns_in_the_settings_are_kept_on_both_paths(self):
+        write(self.target, ".claude/settings.json", '{\r\n  "model": "opus"\r\n}\r\n')
+        self.adopt_existing()
+        appended = (self.target / ".claude/settings.json").read_bytes()
+        write(self.target, ".claude/settings.json", '{\r\n  "enabledPlugins": {"other@market": true}\r\n}\r\n')
+        self.adopt_existing()
+        rewritten = (self.target / ".claude/settings.json").read_bytes()
+        for data in (appended, rewritten):
+            self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
+            self.assertIn("sdlc-marketplace", json.loads(data)["extraKnownMarketplaces"])
 
     def test_an_empty_object_takes_the_keys(self):
         write(self.target, ".claude/settings.json", "{}\n")
@@ -166,17 +213,19 @@ class ExistingMode(Scratch):
             self.assertFalse((self.target / rel).exists(), rel)
         self.assertEqual((self.target / ".github/workflows/ci.yml").read_text(), "name: CI\non:\n  push:\n")
 
-    def test_the_protocol_text_is_filled(self):
+    def test_without_a_spec_the_templates_own_page_is_filled(self):
+        self.assertFalse((self.template / "tools/sdlc_protocol/spec").exists(), "the vendored copy has no spec")
         manifest = self.adopt_existing()
         self.assertEqual(manifest["protocol_text"], "template")
         self.assertEqual((self.target / "docs/agents/PROTOCOL.md").read_text(),
                          "# How work is claimed\n\nThe queue is on octo-org/widget; pushes to main.\n")
 
-    def test_the_spec_wins_when_the_copy_carries_it(self):
-        make_template(self.template, spec=True)
-        manifest = self.adopt_existing()
+    def test_the_librarys_spec_when_the_workflow_passes_it(self):
+        spec = write(self.root, "protocol/spec/PROTOCOL.md", SPEC)
+        manifest = self.adopt_existing(protocol_spec=spec)
         self.assertEqual(manifest["protocol_text"], "spec")
         self.assertEqual((self.target / "docs/agents/PROTOCOL.md").read_text(), SPEC)
+        self.assertIn("docs/agents/PROTOCOL.md", manifest["added"])
 
     def test_a_file_that_is_there_is_kept(self):
         write(self.target, "tools/board.py", "their board\n")
@@ -184,6 +233,44 @@ class ExistingMode(Scratch):
         manifest = self.adopt_existing()
         self.assertEqual(manifest["kept"], ["docs/agents/claims/README.md", "tools/board.py"])
         self.assertEqual((self.target / "tools/board.py").read_text(), "their board\n")
+
+    def test_a_workflow_and_its_script_come_together_or_not_at_all(self):
+        write(self.target, "tools/board.py", "their board\n")
+        manifest = self.adopt_existing()
+        self.assertFalse((self.target / ".github/workflows/board.yml").exists())
+        self.assertEqual(self.skipped(manifest)[".github/workflows/board.yml"],
+                         "`tools/board.py` is this repository's own, and the board's workflow and its script are"
+                         " brought together or not at all")
+        self.assertNotIn(".github/workflows/board.yml", manifest["added"])
+
+    def test_their_metrics_workflow_keeps_the_templates_script_out(self):
+        make_template(self.template, metrics=True)
+        write(self.target, ".github/workflows/metrics.yml", "name: Their metrics\n")
+        manifest = self.adopt_existing()
+        self.assertFalse(manifest["metrics_workflow"])
+        self.assertTrue(manifest["metrics_in_template"])
+        self.assertFalse((self.target / "tools/metrics.py").exists())
+        self.assertIn(".github/workflows/metrics.yml", manifest["kept"])
+        self.assertIn("tools/metrics.py", self.skipped(manifest))
+
+    def test_their_vendored_record_keeps_the_whole_library_out(self):
+        write(self.target, "tools/VENDORED", "sdlc-protocol 0.0.0 their copy\n")
+        manifest = self.adopt_existing()
+        self.assertEqual(manifest["kept"], ["tools/VENDORED"])
+        self.assertFalse((self.target / "tools/sdlc_protocol").exists())
+        for rel in LIBRARY[1:]:
+            self.assertIn("`tools/VENDORED` is this repository's own", self.skipped(manifest)[rel])
+        self.assertIn("tools/board.py", manifest["added"])
+
+    def test_a_kept_protocol_leaves_claude_md_alone(self):
+        write(self.target, "docs/agents/PROTOCOL.md", "Agents must ask Bob before merging.\n")
+        manifest = self.adopt_existing()
+        self.assertEqual((self.target / "CLAUDE.md").read_text(), THEIR_CLAUDE)
+        self.assertNotIn("CLAUDE.md", manifest["merged"] + manifest["added"])
+        self.assertIn("docs/agents/PROTOCOL.md", manifest["kept"])
+        self.assertEqual(len(manifest["notes"]), 1)
+        self.assertIn("gains no section importing it", manifest["notes"][0])
+        self.assertIn(adopt.CLAUDE_SECTION, manifest["notes"][0])
 
     def test_metrics_on_and_off(self):
         for metrics in ("on", "off"):
@@ -198,6 +285,14 @@ class ExistingMode(Scratch):
         self.assertEqual((self.target / ".github/sdlc-metrics").read_text(), "off\n")
         self.assertIn(".github/sdlc-metrics", manifest["kept"])
         self.assertEqual(len(manifest["notes"]), 1)
+
+    def test_a_kept_switch_is_read_by_its_first_word_as_the_workflow_reads_it(self):
+        write(self.target, ".github/sdlc-metrics", "On\n\nThe first word of this file is the switch.\n")
+        self.assertEqual(self.adopt_existing(metrics="on")["notes"], [])
+        write(self.target, ".github/sdlc-metrics", "maybe\n")
+        notes = [note for note in self.adopt_existing(metrics="on")["notes"] if ".github/sdlc-metrics" in note]
+        self.assertEqual(len(notes), 1)
+        self.assertIn("something other than on or off, which the metrics workflow reads as off", notes[0])
 
     def test_metrics_come_only_with_both_files(self):
         make_template(self.template, metrics=(".github/workflows/metrics.yml",))
@@ -229,6 +324,7 @@ class ExistingModeEdges(Scratch):
         })
         self.assertIn("CLAUDE.md", manifest["added"])
         self.assertIn(".claude/settings.json", manifest["added"])
+        self.assertTrue(manifest["plugin_enabled"])
 
     def test_invalid_settings_are_left_as_they_were(self):
         manifest = self.adopt_existing({".claude/settings.json": '{"permissions": [,]\n'})
@@ -261,6 +357,53 @@ class ExistingModeEdges(Scratch):
         self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
 
 
+class Ignored(Scratch):
+    """A checkout whose ignore rules match a planned path: git would commit
+    it only by force and then replace each person's own copy on pull."""
+
+    def setUp(self):
+        super().setUp()
+        make_template(self.template)
+
+    def adopt_checkout(self, ignore, files=NO_GIT):
+        make_checkout(self.target, files, ignore)
+        code, manifest, err = apply(self.template, self.target, self.manifest, mode="existing")
+        self.assertEqual(code, 0, err)
+        return manifest
+
+    def test_an_ignored_claude_md_and_settings_are_not_written(self):
+        manifest = self.adopt_checkout(".claude/\nCLAUDE.md\n", {"README.md": "# widget\n"})
+        self.assertFalse((self.target / "CLAUDE.md").exists())
+        self.assertFalse((self.target / ".claude").exists())
+        skipped = self.skipped(manifest)
+        self.assertEqual(skipped["CLAUDE.md"], adopt.IGNORED_WHY)
+        self.assertEqual(skipped[".claude/settings.json"], adopt.IGNORED_WHY)
+        self.assertIn("docs/agents/PROTOCOL.md", manifest["added"])
+
+    def test_an_ignored_folder_holds_its_units_back(self):
+        manifest = self.adopt_checkout("tools/\n")
+        skipped = self.skipped(manifest)
+        for rel in LIBRARY + ("tools/board.py",):
+            self.assertEqual(skipped[rel], adopt.IGNORED_WHY, rel)
+        self.assertIn("`tools/board.py` is ignored by this repository", skipped[".github/workflows/board.yml"])
+        self.assertFalse((self.target / "tools").exists())
+        self.assertIn(".github/workflows/tidy.yml", manifest["added"])
+
+    def test_a_tracked_file_the_rules_match_is_still_merged(self):
+        make_checkout(self.target, NO_GIT, "CLAUDE.md\n")
+        track(self.target, "CLAUDE.md")
+        code, manifest, err = apply(self.template, self.target, self.manifest, mode="existing")
+        self.assertEqual(code, 0, err)
+        self.assertIn("CLAUDE.md", manifest["merged"])
+        self.assertTrue((self.target / "CLAUDE.md").read_text().endswith(adopt.CLAUDE_SECTION))
+
+    def test_a_plain_folder_ignores_nothing(self):
+        make_target(self.target, dict(NO_GIT, **{".gitignore": "CLAUDE.md\n.claude/\n"}))
+        code, manifest, err = apply(self.template, self.target, self.manifest, mode="existing")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(manifest["merged"], sorted([adopt.CLAUDE_MD, adopt.SETTINGS]))
+
+
 class Links(Scratch):
     def setUp(self):
         super().setUp()
@@ -285,17 +428,21 @@ class Links(Scratch):
         (self.target / "docs").symlink_to(self.outside, target_is_directory=True)
         code, manifest, err = apply(self.template, self.target, self.manifest, mode="existing")
         self.assertEqual(code, 0, err)
-        skipped = {item["path"]: item["why"] for item in manifest["skipped"]}
+        skipped = self.skipped(manifest)
         self.assertIn("docs/agents/PROTOCOL.md", skipped)
         self.assertIn("leads out of the repository", skipped["docs/agents/PROTOCOL.md"])
         self.assertEqual(sorted(p.name for p in self.outside.iterdir()), ["secret.md"])
+        self.assertFalse((self.target / "CLAUDE.md").exists(), "no section imports a page that is not there")
+        self.assertIn("was not written (above)", manifest["notes"][0])
 
     def test_a_link_of_theirs_into_git_is_never_written_through(self):
         make_target(self.target, {".git/hooks/README": "hooks\n"})
         (self.target / "tools").symlink_to(self.target / ".git/hooks", target_is_directory=True)
         code, manifest, err = apply(self.template, self.target, self.manifest, mode="existing")
         self.assertEqual(code, 0, err)
-        self.assertIn("tools/board.py", {item["path"] for item in manifest["skipped"]})
+        skipped = self.skipped(manifest)
+        self.assertIn("tools/board.py", skipped)
+        self.assertIn("`tools/board.py` cannot be written here", skipped[".github/workflows/board.yml"])
         self.assertEqual(sorted(p.name for p in (self.target / ".git/hooks").iterdir()), ["README"])
 
     def test_a_claude_md_link_that_leads_out_is_left_alone(self):
@@ -353,6 +500,13 @@ class Refusals(Scratch):
         code, _, err = apply(self.template, self.target, self.manifest, mode="existing")
         self.assertEqual(code, 1)
         self.assertIn("tools/VENDORED", err)
+
+    def test_a_spec_that_is_not_a_file(self):
+        code, _, err = apply(self.template, self.target, self.manifest, mode="existing",
+                             protocol_spec=self.root / "none")
+        self.assertEqual(code, 1)
+        self.assertIn("--protocol-spec", err)
+        self.assertEqual(snapshot(self.target), {"README.md": b"# widget\n"})
 
 
 if __name__ == "__main__":
