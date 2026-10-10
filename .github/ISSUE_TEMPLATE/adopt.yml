@@ -11,7 +11,7 @@ body:
         - **New repository**: the whole template, as "Use this template" would make it, with your names filled in. A file your repository has already, typically the README GitHub made, is replaced, and the pull request lists it.
         - **Existing repository**: the claim protocol only (the board's workflows, the protocol's code and text, the claim folder, a section in CLAUDE.md, the sdlc plugin in .claude/settings.json). No file of yours is overwritten.
 
-        LICENSE is never copied: licensing your project is your decision.
+        LICENSE is never copied: licensing your project is your decision. The files you receive are offered under the MIT License, the LICENSE of this repository.
 
         **Metrics.** Anonymous aggregates are shared by default: counts, durations and rates of the protocol at work, and failure-type frequencies when a maintainer runs the judge themselves. Never code, text, titles or names; your repository appears in the dataset only as a salted hash. Turn it off at any time by writing `off` in `.github/sdlc-metrics` in your repository, or choose "Do not share" below.
 

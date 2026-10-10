@@ -25,7 +25,7 @@ The run makes the board's labels in your repository at once, pushes the branch s
 
 No file of yours is overwritten: one that is there already is kept and listed as kept. What is left by hand, each person installing the plugin once and protecting the default branch, is in the pull request.
 
-Both kinds write `.github/sdlc-metrics`, the metrics switch below, and bring the template's metrics workflow once the template carries it. Neither copies LICENSE: licensing your project is your decision.
+Both kinds write `.github/sdlc-metrics`, the metrics switch below, and bring the template's metrics workflow once the template carries it. Neither copies LICENSE: licensing your project is your decision; the files themselves are offered under the MIT License, whose text is this repository's LICENSE.
 
 ## What is shared, and how to turn it off
 
@@ -71,7 +71,7 @@ One-time setup, by an owner of OpenSpineConsortium, before the form works. The l
    Anyone who can push to this repository can reach that key through a workflow, so keep write access here to the organization's owners. A key that is set but wrong, or an id that is, gets every request the answer that the front door's App is not working, leaves the issue open and ends the run red, so that it is seen here.
 6. **Protect main**: require a pull request and the check named "check" (.github/workflows/ci.yml), and block force pushes and deletions, at https://github.com/OpenSpineConsortium/sdlc-start/settings/rules.
 
-There is no LICENSE file here, and the adoption copies none into anyone's repository: what license, if any, the template's files are offered under is the owner's decision, and adding a LICENSE here is a pull request once it is made.
+The files an adoption brings are offered under the MIT License, whose text is LICENSE here and which the pull request names. The adoption copies no LICENSE file into anyone's repository, since licensing your project is your decision.
 
 ## Checks
 
