@@ -1,0 +1,38 @@
+name: Checks
+
+# The front door's checks on every pull request and every push to main:
+# bash scripts/check.sh, which holds every file to ASCII with LF endings
+# and runs the tests. The job is named "check" so a ruleset can require it
+# by that name, and main takes only pull requests that pass it.
+# setup-python pins the interpreter to 3.12, the oldest the scripts
+# promise, so the runner image moving to a newer Python changes nothing
+# here. The runner has no actionlint, so check.sh says it skipped it. A
+# newer push to the same branch cancels the run still going. The job uses
+# no secret and only GitHub's own read-only token.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Run the checks
+        run: bash scripts/check.sh

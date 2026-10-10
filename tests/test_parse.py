@@ -1,0 +1,130 @@
+"""parse takes exactly what the adoption form writes and nothing else: anyone
+can open an issue, so a body that is not the form's, a repository name
+GitHub would not take, or a value that would smuggle a second line into
+$GITHUB_OUTPUT is refused, with a reason that never quotes the issue."""
+
+import re
+import unittest
+
+from trees import adopt, run
+
+NEW = "New repository: the whole template"
+EXISTING = "Existing repository: the protocol only"
+SHARE = "Share anonymous aggregates (default)"
+KEEP = "Do not share"
+
+
+def form_body(repository="octo-org/widget", kind=NEW, metrics=SHARE, box="X", newline="\n"):
+    lines = [
+        "### Repository", "", repository, "",
+        "### Kind", "", kind, "",
+        "### Metrics", "", metrics, "",
+        "### The App", "", f"- [{box}] The OpenSpine SDLC App is installed on this repository", "",
+    ]
+    return newline.join(lines)
+
+
+BAD_REPOSITORIES = (
+    "",
+    "_No response_",
+    "acme",
+    "acme/",
+    "/widget",
+    "a/b/c",
+    "a/b; rm -rf /",
+    "a/b && curl evil.example",
+    "a/b$(id)",
+    "a/b`id`",
+    "a/b\nmode=existing",
+    "https://github.com/octo-org/widget",
+    "github.com/octo-org/widget",
+    "octo-org/widget.git",
+    "octo-org/widget.GIT",
+    "-octo/widget",
+    "octo-org/..",
+    "octo-org/.",
+    "octo org/widget",
+    "o" * 40 + "/widget",
+    "octo-org/" + "w" * 101,
+    "octo" + chr(0xE9) + "/widget",
+    "octo_org/widget",
+    "OpenSpineConsortium/sdlc-template",
+    "openspineconsortium/SDLC-START",
+)
+
+
+class GoodForms(unittest.TestCase):
+    def test_the_form_as_github_writes_it(self):
+        self.assertEqual(adopt.parse_form(form_body()), {
+            "repository": "octo-org/widget", "owner": "octo-org", "name": "widget", "mode": "new", "metrics": "on",
+        })
+
+    def test_existing_and_no_sharing(self):
+        fields = adopt.parse_form(form_body(kind=EXISTING, metrics=KEEP))
+        self.assertEqual((fields["mode"], fields["metrics"]), ("existing", "off"))
+
+    def test_carriage_returns_and_a_lowercase_tick(self):
+        self.assertEqual(adopt.parse_form(form_body(box="x", newline="\r\n"))["repository"], "octo-org/widget")
+
+    def test_names_github_allows(self):
+        for repository in ("a/b", "Octo-Org/my.project_2", "o" * 39 + "/" + "n" * 100, "octo/.github"):
+            with self.subTest(repository=repository):
+                self.assertEqual(adopt.parse_form(form_body(repository=repository))["repository"], repository)
+
+    def test_the_command_prints_key_value_lines(self):
+        code, out, err = run(["parse"], stdin=form_body())
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(out.splitlines(), [
+            "repository=octo-org/widget", "owner=octo-org", "name=widget", "mode=new", "metrics=on",
+        ])
+
+
+class BadForms(unittest.TestCase):
+    def refused(self, body, quoted=None):
+        with self.assertRaises(adopt.FormError) as caught:
+            adopt.parse_form(body)
+        reason = str(caught.exception)
+        self.assertNotIn("\n", reason)
+        if quoted and len(quoted) > 3:
+            self.assertNotIn(quoted, reason)
+        return reason
+
+    def test_repository_names(self):
+        for repository in BAD_REPOSITORIES:
+            with self.subTest(repository=repository):
+                self.refused(form_body(repository=repository), quoted=repository)
+
+    def test_the_box_not_ticked(self):
+        self.assertIn("not ticked", self.refused(form_body(box=" ")))
+
+    def test_another_box_ticked(self):
+        body = form_body().replace("The OpenSpine SDLC App is installed", "Something else is installed")
+        self.refused(body)
+
+    def test_a_kind_or_a_choice_the_form_does_not_offer(self):
+        self.refused(form_body(kind="New"))
+        self.refused(form_body(kind=NEW + "\nmode=existing"), quoted="mode=existing")
+        self.refused(form_body(metrics="on"))
+
+    def test_a_missing_an_extra_or_a_repeated_field(self):
+        self.refused(form_body().replace("### Metrics", "### Sharing"))
+        self.refused(form_body() + "\n### Notes\n\nplease\n")
+        self.refused(form_body() + "\n### Kind\n\n" + EXISTING + "\n")
+        self.refused("")
+        self.refused("Please adopt octo-org/widget.")
+
+    def test_the_command_says_why_in_one_line_and_prints_nothing(self):
+        code, out, err = run(["parse"], stdin=form_body(repository="a/b; rm -rf /"))
+        self.assertEqual((code, out), (1, ""))
+        self.assertEqual(len(err.splitlines()), 1)
+        self.assertNotIn("rm -rf", err)
+
+    def test_no_output_value_can_hold_a_second_line(self):
+        code, out, _ = run(["parse"], stdin=form_body(repository="Octo/x.y_z-1"))
+        self.assertEqual(code, 0)
+        for line in out.splitlines():
+            self.assertRegex(line, re.compile(r"^[a-z]+=[A-Za-z0-9._/-]+$"))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,55 @@
+name: Adopt the SDLC template
+description: Ask for a pull request that brings the OpenSpine SDLC template, or only its claim protocol, into your repository.
+title: "Adopt: "
+labels: ["adopt"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Submitting this form starts a workflow here that opens one pull request in your repository, as the OpenSpine SDLC App, and then closes this issue with a link to your repository's pull requests. The run makes the board's labels in your repository at once, pushes the branch sdlc/adopt and, for a new repository, opens the issue "Set up this project" there; everything else lands only when you merge that pull request, and closing it instead leaves those for you to delete. The request must come from an administrator of the repository, and the App must be installed on it first: https://github.com/apps/openspine-sdlc/installations/new
+
+        - **New repository**: the whole template, as "Use this template" would make it, with your names filled in. A file your repository has already, typically the README GitHub made, is replaced, and the pull request lists it.
+        - **Existing repository**: the claim protocol only (the board's workflows, the protocol's code and text, the claim folder, a section in CLAUDE.md, the sdlc plugin in .claude/settings.json). No file of yours is overwritten.
+
+        LICENSE is never copied: licensing your project is your decision.
+
+        **Metrics.** Anonymous aggregates are shared by default: counts, durations and rates of the protocol at work, and failure-type frequencies when a maintainer runs the judge themselves. Never code, text, titles or names; your repository appears in the dataset only as a salted hash. Turn it off at any time by writing `off` in `.github/sdlc-metrics` in your repository, or choose "Do not share" below.
+
+        **This issue is public.** The repository name you type below is visible on it to anyone, and so is the workflow run that handles it. If a private repository's name says more than you want to show, keep the title a throwaway description, and know that the name below still shows. The issue is closed once it has been handled.
+  - type: input
+    id: repository
+    attributes:
+      label: Repository
+      description: Your repository as OWNER/NAME, such as octo-org/my-project. It must have at least one commit, and you must be one of its administrators.
+      placeholder: OWNER/NAME
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      description: What the pull request brings.
+      options:
+        - "New repository: the whole template"
+        - "Existing repository: the protocol only"
+    validations:
+      required: true
+  - type: dropdown
+    id: metrics
+    attributes:
+      label: Metrics
+      description: Whether your repository shares anonymous aggregates; you can change it later in .github/sdlc-metrics.
+      options:
+        - "Share anonymous aggregates (default)"
+        - "Do not share"
+      default: 0
+    validations:
+      required: true
+  - type: checkboxes
+    id: app
+    attributes:
+      label: The App
+      description: Install it on the repository first, at https://github.com/apps/openspine-sdlc/installations/new
+      options:
+        - label: The OpenSpine SDLC App is installed on this repository
+          required: true
