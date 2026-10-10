@@ -1,0 +1,289 @@
+name: Adopt
+
+# Turns an adoption request into a pull request in the requester's own
+# repository. The template, OpenSpineConsortium/sdlc-template, stays
+# internal to its enterprise, so nobody outside it can press "Use this
+# template"; this public repository is the front door instead. A person
+# installs the OpenSpine SDLC App on their repository and opens the form
+# .github/ISSUE_TEMPLATE/adopt.yml, which labels the issue adopt. This
+# workflow then reads the template with the App's token, runs
+# scripts/adopt.py on a checkout of their repository and opens the pull
+# request there as the App. The files land in their repository and are
+# theirs to read; the template's repository, its history, its issues and
+# its other branches never leave the run.
+#
+# Anyone can open an issue here, so everything the issue says is data: the
+# body reaches scripts/adopt.py parse through env:, never through an
+# expression inside run:, and parse refuses anything the form would not
+# write. The App's token for the named repository comes first, and the run
+# goes on only when the issue's author is an administrator there, so nobody
+# can open a pull request in a repository they do not run; a stranger who
+# names a private repository learns nothing about it, since the App's
+# absence and the author's lack of rights get the same answer. The token
+# for the template is read-only, made only after those checks, used by one
+# checkout and revoked at once, before anything of the person's repository
+# is read; that repository is checked out at depth one and only its default
+# branch, so the names of its other branches never reach this public
+# repository's logs, and the git steps stay quiet for the same reason.
+# GitHub's own token, which may write only this repository's issues, posts
+# every answer. A refusal (scripts/refuse.sh) comments, closes the issue as
+# not planned and ends the run green; anything else that fails comments
+# with the run's link and leaves the issue open for the owner. One run per
+# issue at a time. Until the owner sets the variable SDLC_APP_ID and the
+# secret SDLC_APP_PRIVATE_KEY (README.md, For the owner), every request is
+# answered that the front door is not set up yet, and stays open so its run
+# can be started again once it is.
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+  contents: read
+
+concurrency:
+  group: adopt-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  adopt:
+    if: contains(github.event.issue.labels.*.name, 'adopt')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ISSUE: ${{ github.event.issue.number }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: start
+          persist-credentials: false
+
+      # Only whether the key is set reaches the shell, never the key.
+      - name: Stop while the front door is not set up
+        env:
+          APP_ID: ${{ vars.SDLC_APP_ID }}
+          KEY_SET: ${{ secrets.SDLC_APP_PRIVATE_KEY != '' }}
+          ISSUE_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$APP_ID" ] || [ "$KEY_SET" != true ]; then
+            bash start/scripts/refuse.sh --keep-open "Nothing was done yet: this front door has not been given the OpenSpine SDLC App by its owner. This issue stays open, and its run can be started again once that is done."
+          fi
+
+      - name: Read the form
+        id: form
+        if: env.REFUSED != 'true'
+        env:
+          BODY: ${{ github.event.issue.body }}
+          ISSUE_TOKEN: ${{ github.token }}
+        run: |
+          if printf '%s' "$BODY" | python3 start/scripts/adopt.py parse > "$RUNNER_TEMP/form" 2> "$RUNNER_TEMP/reason"; then
+            cat "$RUNNER_TEMP/form" >> "$GITHUB_OUTPUT"
+            cat "$RUNNER_TEMP/form"
+          else
+            reason="$(head -n 1 "$RUNNER_TEMP/reason")"
+            bash start/scripts/refuse.sh "Nothing was done: ${reason}. Open a new request with the form once that is put right; this one is closed."
+          fi
+
+      # Fails when the App is not installed on the repository's owner or not
+      # given that repository; the next step answers that case.
+      - uses: actions/create-github-app-token@v1
+        id: target-token
+        if: env.REFUSED != 'true'
+        continue-on-error: true
+        with:
+          app-id: ${{ vars.SDLC_APP_ID }}
+          private-key: ${{ secrets.SDLC_APP_PRIVATE_KEY }}
+          owner: ${{ steps.form.outputs.owner }}
+          repositories: ${{ steps.form.outputs.name }}
+
+      - name: Check that the App reaches the repository and the author administers it
+        if: env.REFUSED != 'true'
+        env:
+          TOKEN_OUTCOME: ${{ steps.target-token.outcome }}
+          GH_TOKEN: ${{ steps.target-token.outputs.token }}
+          TARGET: ${{ steps.form.outputs.repository }}
+          AUTHOR: ${{ github.event.issue.user.login }}
+          ISSUE_TOKEN: ${{ github.token }}
+        run: |
+          permission=none
+          if [ "$TOKEN_OUTCOME" = success ]; then
+            permission="$(gh api "repos/$TARGET/collaborators/$AUTHOR/permission" --jq .permission 2>/dev/null || echo none)"
+          fi
+          if [ "$permission" != admin ]; then
+            bash start/scripts/refuse.sh "Nothing was done: the OpenSpine SDLC App is not installed on $TARGET, or not given that repository, or your account is not one of its administrators. Install the App at https://github.com/apps/openspine-sdlc/installations/new and choose the repository, then open a new request with the form as an administrator of it; this one is closed."
+          fi
+
+      - name: Read the repository, and stop when it cannot take the pull request
+        id: target
+        if: env.REFUSED != 'true'
+        env:
+          GH_TOKEN: ${{ steps.target-token.outputs.token }}
+          TARGET: ${{ steps.form.outputs.repository }}
+          OWNER: ${{ steps.form.outputs.owner }}
+          ISSUE_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$TARGET" --jq '"default_branch=" + .default_branch, "owner_type=" + .owner.type' > "$RUNNER_TEMP/target"
+          cat "$RUNNER_TEMP/target" >> "$GITHUB_OUTPUT"
+          branch="$(sed -n 's/^default_branch=//p' "$RUNNER_TEMP/target")"
+          if ! gh api "repos/$TARGET/branches/$branch" --silent 2>/dev/null; then
+            bash start/scripts/refuse.sh "Nothing was done: $TARGET has no commit yet, and a pull request needs a branch to go into. Add a first commit (a README is enough), then open a new request with the form; this one is closed."
+            exit 0
+          fi
+          taken="$(gh api "repos/$TARGET/git/matching-refs/heads/sdlc/adopt" --jq '[.[] | select(.ref == "refs/heads/sdlc/adopt")] | length')"
+          if [ "$taken" != 0 ]; then
+            open="$(gh api "repos/$TARGET/pulls?state=open&head=$OWNER:sdlc/adopt" --jq '.[0].html_url // empty')"
+            if [ -n "$open" ]; then
+              bash start/scripts/refuse.sh "Nothing was done: $TARGET already has the adoption pull request $open. Review and merge that one, or close it and delete its branch sdlc/adopt before a new request; this one is closed."
+            else
+              bash start/scripts/refuse.sh "Nothing was done: $TARGET already has a branch sdlc/adopt, from an earlier request. Delete it at https://github.com/$TARGET/branches, then open a new request with the form; this one is closed."
+            fi
+          fi
+
+      # Read-only and short-lived: revoked by the step after the checkout,
+      # which runs whatever happens, so the post step has nothing to revoke.
+      - uses: actions/create-github-app-token@v1
+        id: template-token
+        if: env.REFUSED != 'true'
+        with:
+          app-id: ${{ vars.SDLC_APP_ID }}
+          private-key: ${{ secrets.SDLC_APP_PRIVATE_KEY }}
+          owner: OpenSpineConsortium
+          repositories: sdlc-template
+          permission-contents: read
+          skip-token-revoke: true
+
+      - uses: actions/checkout@v7
+        if: env.REFUSED != 'true'
+        with:
+          repository: OpenSpineConsortium/sdlc-template
+          token: ${{ steps.template-token.outputs.token }}
+          path: template
+          persist-credentials: false
+          show-progress: false
+
+      - name: Revoke the template's token
+        if: always() && steps.template-token.outputs.token != ''
+        env:
+          GH_TOKEN: ${{ steps.template-token.outputs.token }}
+        run: |
+          gh api --method DELETE installation/token --silent \
+            || echo "::warning::the template's token could not be revoked; it expires within the hour"
+
+      - uses: actions/checkout@v7
+        if: env.REFUSED != 'true'
+        with:
+          repository: ${{ steps.form.outputs.repository }}
+          ref: ${{ steps.target.outputs.default_branch }}
+          token: ${{ steps.target-token.outputs.token }}
+          path: target
+          persist-credentials: false
+          show-progress: false
+
+      - name: Stage the adoption and write the pull request's text
+        if: env.REFUSED != 'true'
+        env:
+          TARGET: ${{ steps.form.outputs.repository }}
+          AUTHOR: ${{ github.event.issue.user.login }}
+          OWNER_TYPE: ${{ steps.target.outputs.owner_type }}
+          DEFAULT_BRANCH: ${{ steps.target.outputs.default_branch }}
+          MODE: ${{ steps.form.outputs.mode }}
+          METRICS: ${{ steps.form.outputs.metrics }}
+        run: |
+          python3 start/scripts/adopt.py apply --template template --target target \
+            --repo "$TARGET" --creator "$AUTHOR" --owner-type "$OWNER_TYPE" \
+            --default-branch "$DEFAULT_BRANCH" --mode "$MODE" --metrics "$METRICS" \
+            --manifest "$RUNNER_TEMP/manifest.json"
+          python3 start/scripts/adopt.py body --manifest "$RUNNER_TEMP/manifest.json" > "$RUNNER_TEMP/body.md"
+          python3 start/scripts/adopt.py body --title --manifest "$RUNNER_TEMP/manifest.json" > "$RUNNER_TEMP/title"
+
+      # The commit is the App's, under its bot's name and noreply address, so
+      # the person's history says who made it. The header is the one
+      # actions/checkout leaves when it keeps its credentials, masked before
+      # use; the remote URL never holds the token.
+      - name: Commit on sdlc/adopt and push it as the App
+        if: env.REFUSED != 'true'
+        env:
+          GH_TOKEN: ${{ steps.target-token.outputs.token }}
+          SLUG: ${{ steps.target-token.outputs.app-slug }}
+          TARGET: ${{ steps.form.outputs.repository }}
+          ISSUE_TOKEN: ${{ github.token }}
+        run: |
+          bot="${SLUG}[bot]"
+          bot_id="$(gh api "users/$bot" --jq .id)"
+          refuse="$GITHUB_WORKSPACE/start/scripts/refuse.sh"
+          cd target
+          git config user.name "$bot"
+          git config user.email "${bot_id}+${bot}@users.noreply.github.com"
+          git switch --quiet -c sdlc/adopt
+          # --force: a file the adoption wrote goes in even where the
+          # repository's .gitignore would leave it out, so the pull request
+          # holds what its body lists; the checkout is fresh, so nothing
+          # else is untracked.
+          git add --all --force
+          if git diff --cached --quiet; then
+            bash "$refuse" "Nothing was done: $TARGET has every file this adoption brings already; this issue is closed."
+            exit 0
+          fi
+          printf '%s\n\n%s\n' "$(cat "$RUNNER_TEMP/title")" \
+            "Opened by the OpenSpine SDLC App at the request of an administrator of this repository; the pull request lists every file and what is left to do." \
+            > "$RUNNER_TEMP/message"
+          git commit --quiet --file "$RUNNER_TEMP/message"
+          basic="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$basic"
+          if ! git -c http.extraheader="AUTHORIZATION: basic $basic" push --quiet origin HEAD:refs/heads/sdlc/adopt; then
+            bash "$refuse" "Nothing was done: GitHub refused the push of the branch sdlc/adopt to $TARGET. The usual reason is that the App's installation there has not yet accepted the permission Workflows: Read and write, which a pull request that adds files under .github/workflows needs; an owner of the account accepts it on the page of installed GitHub Apps, OpenSpine SDLC, Review request. Then open a new request with the form; this one is closed."
+          fi
+
+      - name: Open the pull request
+        id: pr
+        if: env.REFUSED != 'true'
+        env:
+          GH_TOKEN: ${{ steps.target-token.outputs.token }}
+          TARGET: ${{ steps.form.outputs.repository }}
+          DEFAULT_BRANCH: ${{ steps.target.outputs.default_branch }}
+        run: |
+          cd target
+          url="$(gh pr create --repo "$TARGET" --base "$DEFAULT_BRANCH" --head sdlc/adopt \
+            --title "$(cat "$RUNNER_TEMP/title")" --body-file "$RUNNER_TEMP/body.md")"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "opened $url"
+
+      # From the template's own list in tools/template_init.py: mode new
+      # makes all of them, as template-init would; mode existing leaves out
+      # team mode's, whose workflows it does not bring. A label that exists
+      # is fine, and a label that fails costs a warning, not the request.
+      - name: Make the labels the board reads
+        if: env.REFUSED != 'true'
+        env:
+          GH_TOKEN: ${{ steps.target-token.outputs.token }}
+          TARGET: ${{ steps.form.outputs.repository }}
+          MODE: ${{ steps.form.outputs.mode }}
+        run: |
+          python3 start/scripts/adopt.py labels --template template --mode "$MODE" > "$RUNNER_TEMP/labels"
+          while IFS=$'\t' read -r name color description; do
+            if answer="$(gh label create "$name" --repo "$TARGET" --color "$color" --description "$description" 2>&1)"; then
+              echo "label $name: created"
+            elif printf '%s' "$answer" | grep -q "already exists"; then
+              echo "label $name: exists"
+            else
+              echo "::warning::label $name was not made: $answer"
+            fi
+          done < "$RUNNER_TEMP/labels"
+
+      - name: Answer the request and close it
+        if: env.REFUSED != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          URL: ${{ steps.pr.outputs.url }}
+        run: |
+          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Done: the pull request is $URL. Read it, then merge it; it lists every file it brings and the steps that are left. This issue is closed."
+          gh issue close "$ISSUE" --repo "$GITHUB_REPOSITORY" --reason completed
+
+      - name: Say so when something failed
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Something went wrong while handling this request, and it stopped; the run is $RUN. This issue stays open for the owner of this repository to look at. If the run pushed a branch sdlc/adopt to your repository before it stopped, delete that branch before a new request."

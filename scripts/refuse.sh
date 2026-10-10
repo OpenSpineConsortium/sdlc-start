@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Answer an adoption request that ends without a pull request: post the
+# reason on its issue, close the issue as not planned, and tell the later
+# steps of .github/workflows/adopt.yml to do nothing, through REFUSED in
+# $GITHUB_ENV. A refusal is the workflow doing its job, so the step that
+# calls this ends green; only a real failure turns the run red. With
+# --keep-open the issue stays open, for a refusal that is the owner's to
+# fix, after which the run can be started again.
+#
+# The message is the workflow's own text, never the issue's: it may name
+# the repository only after scripts/adopt.py parse has checked the name.
+# Needs ISSUE_TOKEN (the workflow's GITHUB_TOKEN, which may write this
+# repository's issues), ISSUE (the issue's number) and GITHUB_REPOSITORY.
+#
+# Usage: bash scripts/refuse.sh [--keep-open] MESSAGE
+set -eu
+
+keep_open=false
+if [ "${1:-}" = "--keep-open" ]; then
+  keep_open=true
+  shift
+fi
+message="${1:?usage: refuse.sh [--keep-open] MESSAGE}"
+
+GH_TOKEN="$ISSUE_TOKEN" gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "$message"
+if [ "$keep_open" = false ]; then
+  GH_TOKEN="$ISSUE_TOKEN" gh issue close "$ISSUE" --repo "$GITHUB_REPOSITORY" --reason "not planned"
+fi
+echo "REFUSED=true" >> "$GITHUB_ENV"
+echo "refused: $message"
