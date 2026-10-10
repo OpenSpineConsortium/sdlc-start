@@ -942,7 +942,8 @@ def next_steps_new(manifest):
 
 def next_steps_existing(manifest):
     """The steps after the merge, said for the files that landed: a workflow
-    held back has no branch to protect against and renders no board."""
+    held back has no branch to protect against and renders no board, and a
+    board workflow the repository had already goes on rendering it."""
     repo = manifest["repository"]
     added = manifest["added"]
     forced = [name for rel, name in ((BOARD_WORKFLOW, "`board`"), (METRICS_WORKFLOW, "`metrics`")) if rel in added]
@@ -954,6 +955,9 @@ def next_steps_existing(manifest):
         board = ("4. After the merge the next issue event renders the board at"
                  f" https://github.com/{repo}/blob/board/STATE.md; `gh workflow run board.yml --repo {repo}` renders"
                  " it now.")
+    elif BOARD_WORKFLOW in manifest["kept"]:
+        board = (f"4. `{BOARD_WORKFLOW}` is this repository's own and is kept, so your workflow goes on rendering"
+                 f" the board at https://github.com/{repo}/blob/board/STATE.md as it does today.")
     else:
         board = (f"4. `{BOARD_WORKFLOW}` was not written (above), so nothing renders the board until the board's"
                  " workflow and its script are brought together by hand.")

@@ -109,6 +109,14 @@ class Body(unittest.TestCase):
         self.assertNotIn("Never target", body)
         self.assertNotIn("gh workflow run board.yml", body)
 
+    def test_a_kept_board_workflow_goes_on_rendering_the_board(self):
+        files = dict(THEIR_FILES, **{".github/workflows/board.yml": "theirs\n", "tools/board.py": "theirs\n"})
+        body = self.body(files, mode="existing")
+        self.assertIn("`.github/workflows/board.yml` is this repository's own and is kept, so your workflow goes on"
+                      " rendering the board", body)
+        self.assertNotIn("nothing renders the board", body)
+        self.assertNotIn("gh workflow run board.yml", body)
+
     def test_a_held_back_library_is_listed_on_one_line(self):
         files = dict(THEIR_FILES, **{"tools/VENDORED": "theirs\n"})
         body = self.body(files, mode="existing")
