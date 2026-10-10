@@ -17,6 +17,20 @@ from trees import SPEC, THEIR_FILES, adopt, apply, make_checkout, make_target, m
 
 PRIVATE_LINK = "github.com/OpenSpineConsortium/sdlc-template"
 NO_GIT = {rel: text for rel, text in THEIR_FILES.items() if not rel.startswith(".git/")}
+RULES = "https://github.com/octo-org/widget/settings/rules"
+ALL_DONE = {"ruleset": "done", "toggles": "done", "secret_scanning": "done", "push_protection": "done"}
+
+
+def report(outcome="applied", states=ALL_DONE, details=None, mode="new", private=False, required_check=True):
+    """A report as scripts/setup.py writes it."""
+    details = details or {}
+    return {
+        "schema": adopt.SETUP_SCHEMA, "outcome": outcome, "mode": mode, "private": private,
+        "ruleset_name": "Protect the default branch" if outcome == "applied" else None,
+        "required_check": required_check if outcome == "applied" else False,
+        "settings": {key: {"state": state, "detail": details.get(key, "")} for key, state in states.items()}
+        if outcome == "applied" else {},
+    }
 
 
 class Body(unittest.TestCase):
@@ -27,14 +41,17 @@ class Body(unittest.TestCase):
         self.template = make_template(self.root / "template")
         self.manifest = self.root / "manifest.json"
 
-    def body(self, files=None, ignore=None, **options):
+    def body(self, files=None, ignore=None, settings=None, **options):
         if ignore is None:
             target = make_target(self.root / "target", files)
         else:
             target = make_checkout(self.root / "target", files, ignore)
         code, manifest, err = apply(self.template, target, self.manifest, **options)
         self.assertEqual(code, 0, err)
-        code, out, err = run(["body", "--manifest", str(self.manifest)])
+        argv = ["body", "--manifest", str(self.manifest)]
+        if settings is not None:
+            argv += ["--settings", str(write(self.root, "settings.json", json.dumps(settings) + "\n"))]
+        code, out, err = run(argv)
         self.assertEqual(code, 0, err)
         out.encode("ascii")
         self.assertNotIn(PRIVATE_LINK, out)
@@ -180,6 +197,169 @@ class Body(unittest.TestCase):
         for index in range(400):
             write(self.template, f"docs/many/page-{index:03d}-with-a-long-name.md", "a page\n")
         self.assertLess(len(self.body()), 65536)
+
+    def test_without_a_report_the_body_says_nothing_of_the_settings(self):
+        body = self.body()
+        self.assertNotIn("## Settings", body)
+        self.assertNotIn("Setup App", body)
+        self.assertIn("2. From a clone", body)
+
+    def test_the_settings_applied_in_new_mode(self):
+        body = self.body(settings=report())
+        self.assertIn("## Settings\n\nThe OpenSpine SDLC Setup App, which you installed on this repository, applied in"
+                      " this run the settings `scripts/setup-repo.sh` applies", body)
+        self.assertIn("- The ruleset \"Protect the default branch\" for the default branch: created. It requires a"
+                      " pull request that passes the check named \"check\" and blocks force pushes and deletions, and"
+                      " nobody can bypass it. This pull request brings that check and runs it where Actions is"
+                      " enabled, so it can merge once that is green; if the check never reports, or you close this"
+                      f" pull request instead, remove the check from the ruleset, or the ruleset, at {RULES}.", body)
+        self.assertIn("- Delete head branches on merge and allow auto-merge: on.", body)
+        self.assertIn("- Secret scanning and push protection: on.", body)
+        self.assertIn("uninstall it at https://github.com/settings/installations, since it holds Administration", body)
+        self.assertIn("2. The GitHub side is set up (Settings above), so `bash scripts/setup-repo.sh` is not needed",
+                      body)
+        self.assertIn("is done but for GitHub's reading of `.github/CODEOWNERS`", body)
+        self.assertIn("--area AREA`, which turns auto-merge off again, and, after reading", body)
+        self.assertNotIn("2. From a clone", body)
+        self.assertNotIn("add the name of your own check", body)
+        self.assertNotIn("written but not enforced", body)
+        self.assertNotIn("was used in this run", body)
+        self.assertLess(body.index("## Settings"), body.index("## Next steps"))
+        self.assertLess(body.index("## What is shared"), body.index("## Settings"))
+
+    def test_an_organization_uninstalls_from_its_own_page(self):
+        body = self.body(settings=report(), owner_type="Organization")
+        self.assertIn("uninstall it at https://github.com/organizations/octo-org/settings/installations", body)
+
+    def test_a_private_repositorys_ruleset_is_said_to_be_unenforced_on_free(self):
+        body = self.body(settings=report(private=True))
+        self.assertIn(f"at {RULES}. On GitHub Free a private repository's ruleset is written but not enforced.", body)
+
+    def test_the_settings_applied_in_existing_mode(self):
+        body = self.body(THEIR_FILES, mode="existing", settings=report(mode="existing", required_check=False))
+        self.assertIn("applied in this run the settings the template's setup script applies", body)
+        self.assertIn("created. It requires a pull request and blocks force pushes and deletions; add the name of"
+                      f" your own check to it at {RULES}, so the default branch takes only pull requests that pass"
+                      " it.", body)
+        self.assertIn("3. The default branch has the ruleset above (Settings), which targets it alone."
+                      " Never target `board`, which the workflows force-push.", body)
+        self.assertNotIn("3. Protect the default branch", body)
+        self.assertNotIn("setup-repo.sh", body)
+        self.assertNotIn("check named \"check\"", body)
+
+    def test_a_ruleset_the_repository_had_is_left_and_checked(self):
+        body = self.body(settings=report(states=dict(ALL_DONE, ruleset="exists")))
+        self.assertIn(f"this repository has one of that name already, which was left as it is; check at {RULES}", body)
+        self.assertIn("2. The GitHub side is set up", body)
+        body = self.body(THEIR_FILES, mode="existing",
+                         settings=report(mode="existing", required_check=False, states=dict(ALL_DONE, ruleset="exists")))
+        self.assertIn(f"3. Check the ruleset you have (Settings above) at {RULES}: it should protect", body)
+
+    def test_a_setting_github_refused_is_said_in_its_words_and_left_by_hand(self):
+        failed = dict(ALL_DONE, ruleset="failed")
+        body = self.body(settings=report(states=failed, details={"ruleset": "HTTP 403: Resource not accessible"}))
+        self.assertIn("which you installed on this repository, was used in this run for the settings", body)
+        self.assertNotIn("applied in this run", body)
+        self.assertIn("- The ruleset \"Protect the default branch\": not created (GitHub said: HTTP 403: Resource not"
+                      f" accessible). Protect the default branch, and only it, at {RULES}", body)
+        self.assertIn("2. For what the Settings above could not do: from a clone", body)
+        self.assertNotIn("2. The GitHub side is set up", body)
+        self.assertIn("which turns auto-merge off again", body)
+        body = self.body(THEIR_FILES, mode="existing",
+                         settings=report(mode="existing", states=failed, details={"ruleset": "HTTP 403: no"}))
+        self.assertIn(f"3. Protect the default branch, and only it, at {RULES}", body)
+        failed = dict(ALL_DONE, toggles="failed")
+        body = self.body(settings=report(states=failed, details={"toggles": "HTTP 403: no"}))
+        self.assertIn("- Delete head branches on merge and allow auto-merge: not changed (GitHub said: HTTP 403: no);"
+                      " tick both under https://github.com/octo-org/widget/settings.", body)
+        self.assertIn("2. For what the Settings above could not do", body)
+        self.assertNotIn("which turns auto-merge off again", body)
+
+    def test_secret_scanning_refused_is_usually_the_plan(self):
+        states = dict(ALL_DONE, secret_scanning="failed", push_protection="not-tried")
+        details = {"secret_scanning": "HTTP 422: Not available.", "push_protection": "secret scanning is not on"}
+        body = self.body(settings=report(states=states, details=details))
+        self.assertIn("- Secret scanning: not turned on (GitHub said: HTTP 422: Not available.). Usually that is the"
+                      " plan or the visibility", body)
+        self.assertIn("was used in this run for the settings", body)
+        self.assertNotIn("applied in this run", body)
+        self.assertIn("https://github.com/octo-org/widget/settings/security_analysis", body)
+        self.assertIn("push protection was not tried, since it needs scanning on.", body)
+        self.assertIn("2. The GitHub side is set up", body)
+        self.assertIn("is done but for secret scanning or push protection, above, and GitHub's reading of"
+                      " `.github/CODEOWNERS`", body)
+        states = dict(ALL_DONE, push_protection="failed")
+        body = self.body(settings=report(states=states, details={"push_protection": "HTTP 422: No."}))
+        self.assertIn("- Secret scanning: on. Push protection: not turned on (GitHub said: HTTP 422: No.); turn it on"
+                      " under https://github.com/octo-org/widget/settings/security_analysis", body)
+        self.assertIn("is done but for secret scanning or push protection, above", body)
+
+    def test_the_setup_app_not_installed(self):
+        body = self.body(settings=report(outcome="not-installed"))
+        self.assertIn("## Settings\n\nNone of the settings was changed: no token for this repository could be made"
+                      " from the OpenSpine SDLC Setup App, which means it is not installed on this repository, or its"
+                      " installation does not include it, or GitHub did not answer; so this run could not apply the"
+                      " settings `scripts/setup-repo.sh` applies", body)
+        self.assertIn("Step 2 of the next steps applies them by hand, with `scripts/setup-repo.sh`.", body)
+        self.assertIn("If you did install it, uninstall it now at https://github.com/settings/installations, since"
+                      " nothing used it, and say so on your request's issue.", body)
+        self.assertIn("2. From a clone", body)
+        self.assertNotIn("That was the Setup App's one job", body)
+        self.assertNotIn("which turns auto-merge off again", body)
+        self.assertNotIn("Nothing of the GitHub side", body)
+        body = self.body(THEIR_FILES, mode="existing", settings=report(outcome="not-installed", mode="existing"))
+        self.assertIn("the settings the template's setup script applies", body)
+        self.assertIn("Step 3 of the next steps protects the default branch; the two toggles are under"
+                      " https://github.com/octo-org/widget/settings and secret scanning with push protection under"
+                      " https://github.com/octo-org/widget/settings/security_analysis, where the plan offers them.",
+                      body)
+        self.assertIn(f"3. Protect the default branch, and only it, at {RULES}", body)
+
+    def test_the_front_door_without_a_setup_app(self):
+        body = self.body(settings=report(outcome="not-set-up"))
+        self.assertIn("None of the settings was changed: this front door has no Setup App yet", body)
+        self.assertIn("Step 2 of the next steps applies them by hand", body)
+        self.assertIn("2. From a clone", body)
+        self.assertNotIn("uninstall", body.replace("uninstalling the App stops it too", ""))
+
+    def test_the_front_doors_setup_app_broken(self):
+        body = self.body(settings=report(outcome="front-door-broken"))
+        self.assertIn("None of the settings was changed: this front door's Setup App is not working (its id or"
+                      " private key there is wrong, it is not installed on the front door's own repository, or GitHub"
+                      " did not answer), which is for the front door's owner to put right, and the run has told them",
+                      body)
+        self.assertIn("If you installed the Setup App, uninstall it now at https://github.com/settings/installations,"
+                      " since nothing used it.", body)
+        self.assertIn("2. From a clone", body)
+
+    def test_a_settings_step_that_died_before_its_report(self):
+        body = self.body(settings=report(outcome="not-reported"), owner_type="Organization")
+        self.assertIn("## Settings\n\nThe step that applies the settings stopped before it could say what it did. If"
+                      " you installed the Setup App, some of the settings `scripts/setup-repo.sh` applies", body)
+        self.assertIn("check https://github.com/octo-org/widget/settings/rules and"
+                      " https://github.com/octo-org/widget/settings. Step 2 of the next steps applies them by hand",
+                      body)
+        self.assertIn("That was the Setup App's one job: uninstall it at"
+                      " https://github.com/organizations/octo-org/settings/installations", body)
+        self.assertIn("2. From a clone", body)
+        self.assertNotIn("which turns auto-merge off again", body)
+
+    def test_a_file_that_is_not_a_report(self):
+        self.body()
+        for bad in ('{"schema": "something else"}', '{"schema": "sdlc-setup/1", "outcome": "done", "settings": {}}',
+                    '{"schema": "sdlc-setup/1", "outcome": "applied", "settings": []}',
+                    '{"schema": "sdlc-setup/1", "outcome": "applied", "settings": {"ruleset": {"state": 1}}}',
+                    '{"schema": "sdlc-setup/1", "outcome": "applied", "settings": {"ruleset": {"state": "done",'
+                    ' "detail": "two\\nlines"}}}', "[]", "null", "{"):
+            path = write(self.root, "bad.json", bad + "\n")
+            with self.subTest(report=bad):
+                code, _, err = run(["body", "--manifest", str(self.manifest), "--settings", str(path)])
+                self.assertEqual(code, 1)
+                self.assertEqual(len(err.splitlines()), 1)
+                self.assertIn("bad.json", err)
+                self.assertNotIn("manifest.json", err)
+        code, _, err = run(["body", "--manifest", str(write(self.root, "list.json", "[]\n"))])
+        self.assertEqual((code, len(err.splitlines())), (1, 1))
 
 
 class Labels(unittest.TestCase):

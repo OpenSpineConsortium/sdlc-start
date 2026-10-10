@@ -6,12 +6,14 @@ body:
   - type: markdown
     attributes:
       value: |
-        Submitting this form starts a workflow here that opens one pull request in your repository, as the OpenSpine SDLC App, and then closes this issue with a link to your repository's pull requests. The run makes the board's labels in your repository at once, pushes the branch sdlc/adopt and, for a new repository, opens the issue "Set up this project" there; everything else lands only when you merge that pull request, and closing it instead leaves those for you to delete. The request must come from an administrator of the repository, and the App must be installed on it first: https://github.com/apps/openspine-sdlc/installations/new
+        Submitting this form starts a workflow here that opens one pull request in your repository, as the OpenSpine SDLC App, and then closes this issue with a link to your repository's pull requests. The run makes the board's labels in your repository at once, pushes the branch sdlc/adopt, applies the settings below where you installed the Setup App, and, for a new repository, opens the issue "Set up this project" there; everything else lands only when you merge that pull request, and closing it instead leaves those for you to delete or undo. The request must come from an administrator of the repository, and the App must be installed on it first: https://github.com/apps/openspine-sdlc/installations/new
 
         - **New repository**: the whole template, as "Use this template" would make it, with your names filled in. A file your repository has already, typically the README GitHub made, is replaced, and the pull request lists it.
         - **Existing repository**: the claim protocol only (the board's workflows, the protocol's code and text, the claim folder, a section in CLAUDE.md, the sdlc plugin in .claude/settings.json). No file of yours is overwritten.
 
         LICENSE is never copied: licensing your project is your decision. The files you receive are offered under the MIT License, the LICENSE of this repository.
+
+        **Settings, if you want them applied.** To have the same run set up the GitHub side of your repository (the default branch's ruleset, delete-on-merge and auto-merge, secret scanning with push protection), install the OpenSpine SDLC Setup App on it too, before submitting: https://github.com/apps/openspine-sdlc-setup/installations/new, choosing "Only select repositories" and that one repository, never "All repositories". It holds Administration, which those settings need and nothing else here does, and this one run is its only use: uninstall it once the pull request is open. Installing it is the choice; there is no box for it. Without it, the pull request says how to apply the settings by hand.
 
         **Metrics.** Anonymous aggregates are shared by default: counts, durations and rates of the protocol at work, and failure-type frequencies when a maintainer runs the judge themselves. Never code, text, titles or names; your repository appears in the dataset only as a salted hash. Turn it off at any time by writing `off` in `.github/sdlc-metrics` in your repository, or choose "Do not share" below.
 

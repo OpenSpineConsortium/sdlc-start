@@ -23,7 +23,10 @@
          one section once that text has landed, and .claude/settings.json
          the keys that enable the sdlc plugin.
   body   prints the pull request's text from the manifest, or with
-         --title its title.
+         --title its title; with --settings, the report scripts/setup.py
+         wrote is rendered into it, so the pull request says which of
+         the repository's settings the Setup App applied in the same run,
+         or why none was, and the next steps follow from that.
   labels prints the board's labels, read from the template's own list.
 
 LICENSE is never copied: licensing the person's project is their
@@ -131,6 +134,17 @@ MARKETPLACE = {
 PLUGIN = "sdlc@sdlc-marketplace"
 
 FRONT_DOOR = "https://github.com/OpenSpineConsortium/sdlc-start"
+
+# The Setup App: a second App, holding Administration, which the person
+# installs on the repository for the one run that applies the template's
+# repository settings (scripts/setup.py) and uninstalls afterwards. Its
+# report says what was done, and the pull request's text follows it.
+SETUP_APP = "OpenSpine SDLC Setup"
+SETUP_SCHEMA = "sdlc-setup/1"
+SETUP_OUTCOMES = ("applied", "not-set-up", "not-installed", "front-door-broken", "not-reported")
+SETUP_SCRIPT = "scripts/setup-repo.sh"
+THE_SETTINGS = ("the default branch's ruleset, delete-on-merge and auto-merge, and secret scanning with push"
+                " protection")
 
 
 class FormError(Exception):
@@ -923,32 +937,201 @@ def sharing_section(manifest):
     return parts[:2] + [" ".join(parts[2:]), ""]
 
 
-def next_steps_new(manifest):
+def setting_state(report, key):
+    """One setting's state in the Setup App's report, or None where the
+    report has no such setting (none was applied)."""
+    if report is None:
+        return None
+    return report["settings"].get(key, {}).get("state")
+
+
+def github_said(report, key):
+    detail = report["settings"].get(key, {}).get("detail")
+    return f" (GitHub said: {detail})" if detail else ""
+
+
+def settings_done(report):
+    """Whether the Setup App left nothing of the settings to do by hand:
+    secret scanning aside, which the plan or the visibility may refuse and
+    which the section says so."""
+    return (report is not None and report["outcome"] == "applied"
+            and setting_state(report, "ruleset") in ("done", "exists") and setting_state(report, "toggles") == "done")
+
+
+def every_setting_done(report):
+    """Whether every setting, secret scanning included, is done or was
+    there already, so the section may say the settings were applied."""
+    return settings_done(report) and all(setting_state(report, key) == "done"
+                                         for key in ("secret_scanning", "push_protection"))
+
+
+def installations_page(manifest):
+    """Where the person uninstalls the Setup App: their own installations,
+    or the organization's."""
+    if manifest["owner_type"] == "Organization":
+        return f"https://github.com/organizations/{manifest['repository'].split('/')[0]}/settings/installations"
+    return "https://github.com/settings/installations"
+
+
+def ruleset_line(manifest, report):
     repo = manifest["repository"]
+    name = report.get("ruleset_name") or "Protect the default branch"
+    rules = f"https://github.com/{repo}/settings/rules"
+    state = setting_state(report, "ruleset")
+    if state == "done":
+        line = f"- The ruleset \"{name}\" for the default branch: created. It requires a pull request"
+        if report.get("required_check"):
+            line += (" that passes the check named \"check\" and blocks force pushes and deletions, and nobody can"
+                     " bypass it. This pull request brings that check and runs it where Actions is enabled, so it can"
+                     " merge once that is green; if the check never reports, or you close this pull request instead,"
+                     f" remove the check from the ruleset, or the ruleset, at {rules}.")
+        else:
+            line += (f" and blocks force pushes and deletions; add the name of your own check to it at {rules}, so"
+                     " the default branch takes only pull requests that pass it.")
+        if report.get("private"):
+            line += " On GitHub Free a private repository's ruleset is written but not enforced."
+        return line
+    if state == "exists":
+        return (f"- The ruleset \"{name}\": this repository has one of that name already, which was left as it is;"
+                f" check at {rules} that it requires a pull request and your checks and blocks force pushes and"
+                " deletions.")
+    return (f"- The ruleset \"{name}\": not created{github_said(report, 'ruleset')}. Protect the default branch, and"
+            f" only it, at {rules}: require a pull request and your checks, and block force pushes and deletions.")
+
+
+def toggles_line(manifest, report):
+    if setting_state(report, "toggles") == "done":
+        return "- Delete head branches on merge and allow auto-merge: on."
+    return (f"- Delete head branches on merge and allow auto-merge: not changed{github_said(report, 'toggles')}; tick"
+            f" both under https://github.com/{manifest['repository']}/settings.")
+
+
+def scanning_line(manifest, report):
+    security = f"https://github.com/{manifest['repository']}/settings/security_analysis"
+    if setting_state(report, "secret_scanning") != "done":
+        return (f"- Secret scanning: not turned on{github_said(report, 'secret_scanning')}. Usually that is the plan"
+                " or the visibility: a Free organization's private repository has no Secret Protection. Turn it on"
+                f" under {security} if the plan offers it; push protection was not tried, since it needs scanning"
+                " on.")
+    if setting_state(report, "push_protection") == "done":
+        return "- Secret scanning and push protection: on."
+    return (f"- Secret scanning: on. Push protection: not turned on{github_said(report, 'push_protection')}; turn it"
+            f" on under {security} if the plan offers it.")
+
+
+def by_hand_pointer(manifest):
+    """Where the settings are applied by hand: in mode new the setup script
+    the pull request brings, in mode existing the settings pages, since the
+    next steps there cover the ruleset alone."""
+    repo = manifest["repository"]
+    if manifest["mode"] == "new":
+        return f"Step 2 of the next steps applies them by hand, with `{SETUP_SCRIPT}`."
+    return ("Step 3 of the next steps protects the default branch; the two toggles are under"
+            f" https://github.com/{repo}/settings and secret scanning with push protection under"
+            f" https://github.com/{repo}/settings/security_analysis, where the plan offers them.")
+
+
+def uninstall_sentence(manifest):
+    return (f"That was the Setup App's one job: uninstall it at {installations_page(manifest)}, since it holds"
+            " Administration on this repository and nothing else uses it. The OpenSpine SDLC App, which opened this"
+            " pull request, stays; uninstalling it undoes nothing here and only stops what is shared, above, from"
+            " being read.")
+
+
+def settings_section(manifest, report):
+    """What the Setup App did in this run, or why nothing was done, so the
+    person knows what is set before they merge and what is left by hand."""
+    parts = ["## Settings", ""]
+    named = f"`{SETUP_SCRIPT}`" if manifest["mode"] == "new" else "the template's setup script"
+    what = f"the settings {named} applies ({THE_SETTINGS})"
+    outcome = report["outcome"]
+    if outcome == "applied":
+        did = "applied in this run" if every_setting_done(report) else "was used in this run for"
+        parts.append(f"The {SETUP_APP} App, which you installed on this repository, {did} {what}; what it could do"
+                     " does not wait for the merge, and closing this pull request leaves it as it is:")
+        parts.append("")
+        parts += [ruleset_line(manifest, report), toggles_line(manifest, report), scanning_line(manifest, report)]
+        parts.append("")
+        parts.append(uninstall_sentence(manifest))
+    elif outcome == "not-installed":
+        parts.append(f"None of the settings was changed: no token for this repository could be made from the"
+                     f" {SETUP_APP} App, which means it is not installed on this repository, or its installation"
+                     f" does not include it, or GitHub did not answer; so this run could not apply {what}."
+                     f" {by_hand_pointer(manifest)} If you did install it, uninstall it now at"
+                     f" {installations_page(manifest)}, since nothing used it, and say so on your request's issue.")
+    elif outcome == "front-door-broken":
+        parts.append(f"None of the settings was changed: this front door's Setup App is not working (its id or"
+                     " private key there is wrong, it is not installed on the front door's own repository, or GitHub"
+                     " did not answer), which is for the front door's owner to put right, and the run has told them;"
+                     f" so this run could not apply {what}."
+                     f" {by_hand_pointer(manifest)} If you installed the Setup App, uninstall it now at"
+                     f" {installations_page(manifest)}, since nothing used it.")
+    elif outcome == "not-reported":
+        repo = manifest["repository"]
+        parts.append("The step that applies the settings stopped before it could say what it did. If you installed"
+                     f" the Setup App, some of {what} may be applied: check https://github.com/{repo}/settings/rules"
+                     f" and https://github.com/{repo}/settings. {by_hand_pointer(manifest)}"
+                     f" {uninstall_sentence(manifest)}")
+    else:
+        parts.append(f"None of the settings was changed: this front door has no Setup App yet, so {what} are applied"
+                     f" by hand. {by_hand_pointer(manifest)}")
+    parts.append("")
+    return parts
+
+
+def next_steps_new(manifest, report=None):
+    """The steps after the merge; with the settings applied by the Setup
+    App, the setup script is not needed and the step says what is left."""
+    repo = manifest["repository"]
+    by_hand = ("2. From a clone, on your own computer, with the GitHub CLI signed in as an administrator, run"
+               " `bash scripts/setup-repo.sh`: the default branch's rules, delete-on-merge and auto-merge, secret"
+               " scanning, the labels and a check of `.github/CODEOWNERS`. `docs/setup/owner-checklist.md` has the"
+               " rest: the Claude GitHub App and its token, the Projects and the routines.")
+    if settings_done(report):
+        left = "GitHub's reading of `.github/CODEOWNERS`, which the file's own page shows after the merge"
+        if setting_state(report, "push_protection") != "done":
+            left = "secret scanning or push protection, above, and " + left
+        setup = ("2. The GitHub side is set up (Settings above), so `bash scripts/setup-repo.sh` is not needed;"
+                 " running it anyway changes nothing twice. `docs/setup/owner-checklist.md` has the rest: the Claude"
+                 " GitHub App and its token, the Projects and the routines. The first box of the issue \"Set up this"
+                 f" project\" is done but for {left}.")
+    elif report is not None and report["outcome"] == "applied":
+        setup = by_hand.replace("2. From a clone", "2. For what the Settings above could not do: from a clone", 1)
+    else:
+        setup = by_hand
+    # crowd.py setup turns auto-merge off, which is worth a word only once
+    # this run turned it on.
+    crowd_note = ", which turns auto-merge off again," if setting_state(report, "toggles") == "done" else ""
     return [
         "1. Read this pull request, then merge it.",
-        "2. From a clone, on your own computer, with the GitHub CLI signed in as an administrator, run"
-        " `bash scripts/setup-repo.sh`: the default branch's rules, delete-on-merge and auto-merge, secret scanning,"
-        " the labels and a check of `.github/CODEOWNERS`. `docs/setup/owner-checklist.md` has the rest: the Claude"
-        " GitHub App and its token, the Projects and the routines.",
+        setup,
         "   For a project worked by volunteers on their own Claude accounts, run instead"
-        f" `python3 scripts/crowd.py setup {repo} --area AREA` and, after reading the pull request it opens,"
-        f" `python3 scripts/crowd.py finish {repo}`, as `docs/setup/crowdsourcing.md`, Part 1, says;"
+        f" `python3 scripts/crowd.py setup {repo} --area AREA`{crowd_note} and, after reading the pull request it"
+        f" opens, `python3 scripts/crowd.py finish {repo}`, as `docs/setup/crowdsourcing.md`, Part 1, says;"
         " setup-repo.sh refuses to run once crowd mode is on.",
         "3. Write the goal in `docs/project.md` and the owners in `docs/agents/OWNERSHIP.md`.",
         "4. Run `bash scripts/check.sh` once; CI runs the same as the check named \"check\".",
     ]
 
 
-def next_steps_existing(manifest):
+def next_steps_existing(manifest, report=None):
     """The steps after the merge, said for the files that landed: a workflow
     held back has no branch to protect against and renders no board, and a
-    board workflow the repository had already goes on rendering it."""
+    board workflow the repository had already goes on rendering it. With
+    the ruleset made by the Setup App, the step says to keep it so."""
     repo = manifest["repository"]
     added = manifest["added"]
     forced = [name for rel, name in ((BOARD_WORKFLOW, "`board`"), (METRICS_WORKFLOW, "`metrics`")) if rel in added]
-    protect = (f"3. Protect the default branch, and only it, at https://github.com/{repo}/settings/rules: require a"
-               " pull request and your own checks, and block force pushes and deletions.")
+    rules = f"https://github.com/{repo}/settings/rules"
+    if setting_state(report, "ruleset") == "done":
+        protect = "3. The default branch has the ruleset above (Settings), which targets it alone."
+    elif setting_state(report, "ruleset") == "exists":
+        protect = (f"3. Check the ruleset you have (Settings above) at {rules}: it should protect the default"
+                   " branch, and only it, require a pull request and your own checks, and block force pushes and"
+                   " deletions.")
+    else:
+        protect = (f"3. Protect the default branch, and only it, at {rules}: require a pull request and your own"
+                   " checks, and block force pushes and deletions.")
     if forced:
         protect += f" Never target {' or '.join(forced)}, which the workflows force-push."
     if BOARD_WORKFLOW in added:
@@ -975,8 +1158,8 @@ def next_steps_existing(manifest):
     ]
 
 
-def next_steps_section(manifest):
-    steps = next_steps_new(manifest) if manifest["mode"] == "new" else next_steps_existing(manifest)
+def next_steps_section(manifest, report=None):
+    steps = next_steps_new(manifest, report) if manifest["mode"] == "new" else next_steps_existing(manifest, report)
     return [
         "## Next steps", "", *steps, "",
         "The same run makes the labels the board reads on this repository. Later releases of the protocol come from"
@@ -986,20 +1169,46 @@ def next_steps_section(manifest):
     ]
 
 
-def render_body(manifest):
+def render_body(manifest, report=None):
+    settings = settings_section(manifest, report) if report is not None else []
     lines = [opening(manifest), "", *changes_section(manifest), *notes_section(manifest),
-             *sharing_section(manifest), *next_steps_section(manifest)]
+             *sharing_section(manifest), *settings, *next_steps_section(manifest, report)]
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
+def is_report(report):
+    """Whether a file's JSON is the Setup App's report: its outcome is known
+    and each setting has a state and a detail of one line."""
+    if not isinstance(report, dict) or report.get("schema") != SETUP_SCHEMA:
+        return False
+    if report.get("outcome") not in SETUP_OUTCOMES or not isinstance(report.get("settings"), dict):
+        return False
+    return all(isinstance(setting, dict) and isinstance(setting.get("state"), str)
+               and isinstance(setting.get("detail", ""), str) and "\n" not in setting.get("detail", "")
+               for setting in report["settings"].values())
+
+
+def read_report(path):
+    report = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not is_report(report):
+        raise ValueError("not a report of scripts/setup.py")
+    return report
+
+
 def command_body(options):
+    reading = options.manifest
     try:
         manifest = json.loads(Path(options.manifest).read_text(encoding="utf-8"))
-        if manifest.get("schema") != MANIFEST_SCHEMA:
+        if not isinstance(manifest, dict) or manifest.get("schema") != MANIFEST_SCHEMA:
             raise ValueError("not a manifest of this script")
-        sys.stdout.write(title(manifest) + "\n" if options.title else render_body(manifest))
+        report = None
+        if options.settings:
+            reading = options.settings
+            report = read_report(options.settings)
+            reading = options.manifest
+        sys.stdout.write(title(manifest) + "\n" if options.title else render_body(manifest, report))
     except (OSError, ValueError, KeyError) as problem:
-        print(f"adopt: {options.manifest}: {problem}", file=sys.stderr)
+        print(f"adopt: {reading}: {problem}", file=sys.stderr)
         return 1
     return 0
 
@@ -1061,6 +1270,7 @@ def parse_args(argv):
     body = commands.add_parser("body", help="the pull request's text from a manifest")
     body.add_argument("--manifest", required=True)
     body.add_argument("--title", action="store_true", help="print the title instead of the body")
+    body.add_argument("--settings", help="the report scripts/setup.py wrote, rendered as the section Settings")
 
     labels = commands.add_parser("labels", help="the board's labels as name<TAB>colour<TAB>description")
     labels.add_argument("--template", required=True)
