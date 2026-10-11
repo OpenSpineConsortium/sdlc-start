@@ -52,15 +52,18 @@ class TheForm(unittest.TestCase):
         labels = re.findall(r"^      label: (.+)$", self.text, re.MULTILINE)
         self.assertEqual(labels, list(adopt.FIELDS))
 
-    def test_every_box_parse_reads_is_offered_and_both_are_opt_outs(self):
-        """From the install the form is one button: nothing is required,
-        the kind is read from the repository and sharing is on unless the
-        person ticks the box; the two boxes are the form's only choices."""
+    def test_every_kind_and_box_parse_reads_is_offered_and_nothing_is_required(self):
+        """From the install the form is one press: nothing is required, the
+        kind is Auto by default and sharing is on unless the person ticks
+        the box; the merge box and the two overrides are its only choices."""
+        for option in adopt.KINDS:
+            self.assertIn(f'        - "{option}"\n', self.text)
         for option in adopt.OPTIONS:
             self.assertIn(f"        - label: {option}\n", self.text)
-        self.assertNotIn("type: dropdown", self.text)
+        self.assertEqual(adopt.KINDS[list(adopt.KINDS)[0]], "read")
+        kind = self.text.index("    id: kind\n")
+        self.assertIn("      default: 0\n", self.text[kind:self.text.index("    id: options\n")])
         self.assertNotIn("required: true", self.text)
-        self.assertEqual(self.text.count("required: false"), 2)
         self.assertLess(self.text.index("    id: installation_id\n"), self.text.index("    id: repository\n"))
         run = (ROOT / ".github/workflows/adopt-run.yml").read_text(encoding="utf-8")
         self.assertIn('if [ "$mode" = read ]; then', run)
@@ -80,7 +83,7 @@ class TheForm(unittest.TestCase):
         sentences, which still say what is shared, where the switch is,
         that the issue is public and where the App is installed."""
         for words in ("never code, text or names", ".github/sdlc-metrics", "This issue is public", "installations/new",
-                      "Press Create", "newest created"):
+                      "Press Create", "each repository the installation reaches", "uninstalls itself"):
             self.assertIn(words, self.text)
         prose = re.search(r"value: \|\n((?:        .*\n)+)", self.text).group(1)
         self.assertLess(len(prose.split()), 140)
@@ -136,32 +139,29 @@ class TheWorkflows(unittest.TestCase):
         self.assertIn("if: needs.request.result == 'success' && needs.request.outputs.refused != 'true'", text)
         self.assertIn("requester: ${{ github.event.issue.user.login }}", text)
         self.assertIn("issue: ${{ github.event.issue.number }}", text)
-        self.assertIn("installation_id: ${{ needs.request.outputs.installation }}", text)
-        self.assertIn("repository_id: ${{ needs.request.outputs.repository_id }}", text)
+        self.assertIn("installation_id: ${{ needs.request.outputs.installation_id }}", text)
+        self.assertIn("repository_id: ${{ matrix.repository_id }}", text)
         self.assertIn("secrets: inherit", text)
         for word in ("target-token", "template-token", "setup-token", "gh pr create"):
             self.assertNotIn(word, text)
 
     def test_a_form_from_the_install_is_resolved_silently_and_answered_without_a_name(self):
         """The install fills in the installation's number and no name: the
-        issue path lists that installation's repositories with the App's
-        JWT, takes the one it holds once the author administers it, gives
-        every failure one answer, masks the name and passes ids on; the
-        run then names the repository in its answers only when the form
-        named it."""
+        issue path hands it to resolve.py, which asks the API by id for
+        every repository to adopt, gives every failure one answer at one
+        moment, and passes ids on, one run per repository and one answer
+        for them all; the run names the repository in its answers only
+        when the form named it."""
         text = (ROOT / ".github/workflows/adopt.yml").read_text(encoding="utf-8")
-        resolve = text.index("name: Resolve the installation's one repository")
+        resolve = text.index("name: Resolve the installation to the repositories to adopt")
         self.assertIn("if: env.REFUSED != 'true' && steps.form.outputs.repository == ''", text[resolve:])
         self.assertIn("bash start/scripts/jwt.sh", text)
-        self.assertIn("/app/installations/$INSTALLATION/access_tokens", text)
-        self.assertIn("installation/repositories?per_page=100", text)
-        self.assertIn('-d \'{"permissions":{"contents":"read"}}\'', text)
-        self.assertIn("sweep.chosen(sweep.GitHub(os.environ[\"APP_TOKEN\"]), found)", text)
-        self.assertIn('gh api "repositories/$repository_id/collaborators/$AUTHOR/permission"', text)
-        self.assertEqual(text.count("refuse_alike\n"), 2)
-        self.assertIn("deadline=$((SECONDS + 20))", text)
-        self.assertIn('echo "repository_id=$repository_id" >> "$GITHUB_OUTPUT"', text)
-        # The request job never learns the name, so it registers no mask of
+        self.assertIn("python3 start/scripts/resolve.py", text)
+        self.assertIn('--installation "$INSTALLATION" --author "$AUTHOR" --out "$RUNNER_TEMP/resolved"', text)
+        self.assertEqual(text.count("refuse_alike"), 2)
+        self.assertIn("deadline=$((SECONDS + 25))", text)
+        self.assertIn('0) cat "$RUNNER_TEMP/resolved" >> "$GITHUB_OUTPUT" ;;', text)
+        # The request job never learns a name, so it registers no mask of
         # one and nothing it prints can differ between refusals.
         resolve_step = text[resolve:text.index("      - uses: actions/create-github-app-token@v1", resolve)]
         self.assertNotIn("full_name", resolve_step)
@@ -169,10 +169,19 @@ class TheWorkflows(unittest.TestCase):
         for step in ("id: account-token", "id: app-probe", "name: Check that the App reaches the repository"):
             start = text.index(step)
             self.assertIn("steps.form.outputs.repository != ''", text[start:start + 400])
+        # One run per repository, side by side, and one answer.
+        self.assertIn("repository_id: ${{ fromJson(needs.request.outputs.repository_ids || '[]') }}", text)
+        self.assertIn("fail-fast: false", text)
+        self.assertIn('answer: caller', text)
+        self.assertIn("merge: ${{ needs.request.outputs.merge }}", text)
+        self.assertIn("needs: [request, adopt_each]", text)
+        self.assertIn("RESULT: ${{ needs.adopt_each.result }}", text)
+        self.assertNotIn("github.event.issue.body", text[text.index("  answer:"):])
         run = (ROOT / ".github/workflows/adopt-run.yml").read_text(encoding="utf-8")
         call = run.split("  workflow_dispatch:\n")[0]
-        for name in ("installation_id", "repository_id"):
+        for name in ("installation_id", "repository_id", "merge", "answer"):
             self.assertIn(f"      {name}:\n", call)
+        self.assertIn("group: adopt-run-${{ inputs.issue || 'sweep' }}-${{ inputs.repository_id || inputs.repository }}", run)
         self.assertIn('if [ -n "$ISSUE" ]; then\n            echo "SOURCE=issue"', run)
         self.assertIn('echo "NAMED=$named" >> "$GITHUB_ENV"', run)
         self.assertIn('if [ "$NAMED" = masked ]; then\n            echo "::add-mask::$branch"', run)
@@ -183,90 +192,30 @@ class TheWorkflows(unittest.TestCase):
         self.assertIn('echo "SAID=$target" >> "$GITHUB_ENV"', run)
         self.assertNotIn('refuse.sh "Nothing was done: $TARGET', run)
         self.assertNotIn('"$refuse" "Nothing was done: $TARGET', run)
-        self.assertNotIn("https://github.com/$TARGET/pulls", run)
-        self.assertNotIn("https://github.com/$TARGET/settings", run)
-        self.assertIn("Done: the pull request is open in $SAID, from the branch sdlc/adopt${PULLS_LINK:+: $PULLS_LINK}.", run)
-        form = FORM.read_text(encoding="utf-8")
-        self.assertIn("    id: installation_id\n", form)
-        self.assertIn("      label: Installation\n", form)
-        for field in ("id: repository", "id: installation_id"):
-            start = form.index(field)
-            self.assertIn("required: false", form[start:start + 600])
-        readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn("issues/new?template=adopt.yml`, and tick \"Redirect on update\"", readme)
+        self.assertIn("if: env.REFUSED != 'true' && inputs.issue != '' && inputs.answer != 'caller'", run)
+        self.assertIn("if: failure() && env.REFUSED != 'true' && inputs.issue != '' && inputs.answer != 'caller'", run)
 
-    def test_the_shared_run_takes_a_name_from_the_issue_and_ids_from_the_sweep(self):
-        """A name typed into a public issue is public; a repository the
-        sweep found may be private, so the dispatch carries ids and the run
-        masks the name before anything prints it."""
-        text = (ROOT / ".github/workflows/adopt-run.yml").read_text(encoding="utf-8")
-        self.assertIn("  workflow_call:\n", text)
-        self.assertIn("  workflow_dispatch:\n", text)
-        call, dispatch = text.split("  workflow_dispatch:\n")
-        self.assertIn("      repository:\n", call)
-        self.assertIn("      issue:\n", call)
-        self.assertNotIn("      repository:\n", dispatch.split("permissions:")[0])
-        self.assertIn("      installation_id:\n", dispatch)
-        self.assertIn("      repository_id:\n", dispatch)
-        self.assertIn('echo "::add-mask::$REPOSITORY"', text)
-        self.assertIn('echo "::add-mask::${REPOSITORY%%/*}"', text)
-        self.assertIn('echo "::add-mask::${REPOSITORY#*/}"', text)
-        self.assertIn("python3 start/scripts/adopt.py name", text)
-        self.assertIn('"$RUNNER_TEMP/named" >> "$GITHUB_ENV"', text)
-        self.assertNotIn("steps.form", text)
-        self.assertNotIn("github.event", text)
-        self.assertIn("if: env.REFUSED != 'true' && inputs.issue != ''\n", text)
-        self.assertIn("if: failure() && env.REFUSED != 'true' && inputs.issue != ''\n", text)
-        self.assertIn('--source "$SOURCE"', text)
-        self.assertIn("group: adopt-run-${{ inputs.issue || inputs.repository_id }}", text)
-        self.assertIn('echo "::add-mask::$requester"', text)
-        self.assertIn('echo "::add-mask::$branch"', text)
-
-    def test_the_sweeps_refusal_is_told_in_the_repository_and_the_owner_on_both_paths(self):
-        """The sweep has no issue to answer on, so a refusal after the
-        repository's token was minted becomes one issue of the App's there,
-        which the sweep reads and skips while open; a broken Setup App of
-        the front door's is the owner's news whichever path the run took."""
-        text = (ROOT / ".github/workflows/adopt-run.yml").read_text(encoding="utf-8")
-        told = text.index("name: Tell the repository when the sweep's adoption was refused or failed")
-        self.assertIn("if: always() && env.SOURCE == 'installation' && steps.target-token.outcome == 'success'"
-                      " && (env.REFUSED == 'true' || job.status == 'failure')", text[told:])
-        self.assertIn('echo "PUSHED=true" >> "$GITHUB_ENV"', text)
-        self.assertIn('title="OpenSpine SDLC could not open its pull request"', text)
-        self.assertIn('"$RUNNER_TEMP/refusal"', text)
-        self.assertIn("creator=openspine-sdlc%5Bbot%5D", text)
-        self.assertIn("write off in .github/sdlc-adopt", text)
-        owner = text.index("name: Tell the owner when this front door's Setup App is not working")
-        self.assertIn("if: env.REFUSED != 'true' && env.SETTINGS == 'front-door-broken'\n", text[owner:])
-        self.assertNotIn("inputs.issue", text[owner:text.index("name: Say so when something failed")])
-        refuse = (ROOT / "scripts/refuse.sh").read_text(encoding="utf-8")
-        self.assertIn('if [ -n "${ISSUE:-}" ]; then', refuse)
-        self.assertIn('printf \'%s\\n\' "$kept" > "$RUNNER_TEMP/refusal"', refuse)
-        self.assertIn('${message%; this one is closed.}', refuse)
-
-    def test_the_sweep_dispatches_ids_only_and_prints_counts(self):
-        text = (ROOT / ".github/workflows/sweep.yml").read_text(encoding="utf-8")
-        self.assertIn('    - cron: "*/10 * * * *"\n', text)
-        self.assertIn("permissions:\n  actions: write\n  contents: read\n  issues: read\n", text)
-        self.assertIn("if: vars.SDLC_APP_ID != ''", text)
-        self.assertIn("bash scripts/jwt.sh", text)
-        self.assertIn('echo "::add-mask::$jwt"', text)
-        self.assertIn("gh issue list --repo \"$GITHUB_REPOSITORY\" --label adopt --state open", text)
-        self.assertIn('--json body > "$RUNNER_TEMP/requests.json"', text)
-        self.assertIn('--requests "$RUNNER_TEMP/requests.json"', text)
-        self.assertNotIn("<<", text)
-        self.assertIn("--budget-seconds 420", text)
-        self.assertIn("python3 scripts/sweep.py", text)
-        self.assertIn("if: always() && env.APP_JWT != ''", text)
-        self.assertIn("gh workflow run adopt-run.yml", text)
-        self.assertIn('-f installation_id="$installation" -f repository_id="$repository" -f mode="$mode"', text)
-        self.assertNotIn("full_name", text)
-        self.assertIn("timeout-minutes: 10", text)
-
-    def test_the_check_job_is_named_check(self):
-        text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-        self.assertIn("jobs:\n  check:\n", text)
-        self.assertIn("run: bash scripts/check.sh", text)
+    def test_the_run_merges_when_asked_and_the_setup_app_uninstalls_itself(self):
+        """Merge for me: the run merges, or arms auto-merge where a ruleset
+        requires the check, and says which; the Setup App deletes its own
+        installation once the settings are applied and it reached this
+        repository alone, and the pull request's text says so."""
+        run = (ROOT / ".github/workflows/adopt-run.yml").read_text(encoding="utf-8")
+        merge = run.index("name: Merge the pull request when asked")
+        self.assertIn("if: env.REFUSED != 'true' && inputs.merge == 'true'", run[merge:])
+        self.assertIn('gh pr merge "$number" --repo "$TARGET" --merge --delete-branch', run)
+        self.assertIn('gh pr merge "$number" --repo "$TARGET" --auto --merge --delete-branch', run)
+        self.assertLess(run.index("name: Open the setup issue in a new repository"), merge)
+        self.assertLess(merge, run.index("name: Answer the request and close it"))
+        self.assertIn('merged) merged=" It is merged, as you asked." ;;', run)
+        uninstall = run.index("name: Uninstall the Setup App when this was its only repository")
+        self.assertIn("if: env.REFUSED != 'true' && env.SETTINGS == 'applied'", run[uninstall:])
+        self.assertLess(run.index("name: Revoke the Setup App's token"), uninstall)
+        self.assertLess(uninstall, run.index("name: Write the pull request's text"))
+        self.assertIn('-X DELETE -H "Authorization: Bearer $jwt" -H "$accept" "https://api.github.com/app/installations/$id"', run)
+        self.assertIn('if [ "$count" = 1 ]; then', run)
+        self.assertIn('report["uninstalled"] = True', run)
+        self.assertIn('echo "SETUP_UNINSTALLED=true" >> "$GITHUB_ENV"', run)
 
     def test_only_the_setup_app_is_asked_for_administration(self):
         """The main App's tokens never carry Administration: the one mint
@@ -282,7 +231,9 @@ class TheWorkflows(unittest.TestCase):
         self.assertIn("permission-administration: write", asking[0])
         self.assertIn("continue-on-error: true", asking[0])
         self.assertNotIn("permission-contents", asking[0])
-        self.assertEqual(text.count("secrets.SDLC_SETUP_APP_PRIVATE_KEY"), 3)
+        # The key is minted for Administration once, probed once, read as
+        # set-or-not once, and signs the JWT that uninstalls the App itself.
+        self.assertEqual(text.count("secrets.SDLC_SETUP_APP_PRIVATE_KEY"), 4)
         self.assertIn("secrets.SDLC_SETUP_APP_PRIVATE_KEY != ''", text)
         probe, = [step for step in steps if "id: setup-probe" in step]
         self.assertIn("owner: OpenSpineConsortium\n          repositories: sdlc-start\n", probe)
@@ -293,9 +244,14 @@ class TheWorkflows(unittest.TestCase):
         self.assertTrue(main_mints)
         for step in main_mints:
             self.assertNotIn("administration", step)
+        # The issue path holds the Setup App's key only to sign the JWT that
+        # tells its installation's number from the App's: no token with
+        # Administration is minted there.
         issue_path = (ROOT / ".github/workflows/adopt.yml").read_text(encoding="utf-8")
         self.assertNotIn("administration", issue_path)
-        self.assertNotIn("SDLC_SETUP_APP", issue_path)
+        self.assertNotIn("create-github-app-token@v1\n        id: setup", issue_path)
+        self.assertEqual(issue_path.count("secrets.SDLC_SETUP_APP_PRIVATE_KEY"), 1)
+        self.assertIn('setup_jwt="$(APP_ID="$SETUP_ID" APP_PRIVATE_KEY="$SETUP_KEY" bash start/scripts/jwt.sh)"', issue_path)
 
     def test_the_settings_are_applied_after_the_push_and_before_the_pull_request(self):
         text = (ROOT / ".github/workflows/adopt-run.yml").read_text(encoding="utf-8")

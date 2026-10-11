@@ -61,16 +61,23 @@ MANIFEST_SCHEMA = "sdlc-adopt/1"
 # tests/test_form.py holds the two files to the same words.
 FIELD_INSTALLATION = "Installation"
 FIELD_REPOSITORY = "Repository"
+FIELD_KIND = "Kind"
 FIELD_OPTIONS = "Options"
-FIELDS = (FIELD_INSTALLATION, FIELD_REPOSITORY, FIELD_OPTIONS)
+FIELDS = (FIELD_INSTALLATION, FIELD_REPOSITORY, FIELD_KIND, FIELD_OPTIONS)
 # What GitHub writes under an optional field left empty.
 NO_RESPONSE = "_No response_"
-# The two boxes, both opt-outs: the defaults are sharing on and the kind
-# read from the repository.
+# The kind: Auto, the default, is read from the repository by the run.
+KINDS = {
+    "Auto: the whole template into an empty repository, the protocol alone into one with files": "read",
+    "Empty repository: the whole template": "new",
+    "Existing repository: the protocol only": "existing",
+}
+# The two boxes: the run merges when asked, and sharing is on unless the
+# person says otherwise.
+MERGE_FOR_ME = "Merge the pull request for me"
 OPT_OUT_OF_SHARING = ("Do not share anonymous aggregates (counts, durations and rates of the protocol at work, never"
                       " code, text or names; the switch is .github/sdlc-metrics)")
-PROTOCOL_ONLY = "The protocol only, even into an empty repository"
-OPTIONS = (OPT_OUT_OF_SHARING, PROTOCOL_ONLY)
+OPTIONS = (MERGE_FOR_ME, OPT_OUT_OF_SHARING)
 HEADING = re.compile(r"### (.+)")
 BOX = re.compile(r"- \[([ xX])\] (.+)")
 
@@ -228,9 +235,9 @@ def ticked_options(value):
 def parse_form(body):
     """The form's fields: repository, owner and name (empty when only the
     installation was given), installation (empty when the repository was
-    named without it), mode (existing when the protocol-only box is
-    ticked, else read, which the run reads from the tree) and metrics (off
-    when the opt-out box is ticked)."""
+    named without it), mode (read, the default, which the run reads from
+    the tree), metrics (off when the opt-out box is ticked) and merge
+    (true when the person asked the run to merge)."""
     sections = form_sections(body)
     if set(sections) != set(FIELDS):
         raise FormError("the issue is not the adoption form's")
@@ -240,12 +247,16 @@ def parse_form(body):
                         " App, which fills in the installation")
     installation = parse_installation(installed) if installed else ""
     owner, name = parse_repository(named) if named else ("", "")
+    kind = given(sections[FIELD_KIND])
+    if kind and kind not in KINDS:
+        raise FormError("the field Kind holds none of the form's options")
+    mode = KINDS[kind] if kind else "read"
     ticked = ticked_options(sections[FIELD_OPTIONS])
-    mode = "existing" if PROTOCOL_ONLY in ticked else "read"
     metrics = "off" if OPT_OUT_OF_SHARING in ticked else "on"
+    merge = "true" if MERGE_FOR_ME in ticked else "false"
     repository = f"{owner}/{name}" if named else ""
     return {"repository": repository, "owner": owner, "name": name, "installation": installation,
-            "mode": mode, "metrics": metrics}
+            "mode": mode, "metrics": metrics, "merge": merge}
 
 
 def command_name(options):
@@ -1137,6 +1148,12 @@ def uninstall_sentence(manifest):
             " being read.")
 
 
+def uninstalled_sentence(manifest):
+    return ("The Setup App uninstalled itself once that was done, this repository being the only one its"
+            " installation reached. The OpenSpine SDLC App, which opened this pull request, stays; uninstalling it"
+            " undoes nothing here and only stops what is shared, above, from being read.")
+
+
 def settings_section(manifest, report):
     """What the Setup App did in this run, or why nothing was done, so the
     person knows what is set before they merge and what is left by hand."""
@@ -1151,7 +1168,7 @@ def settings_section(manifest, report):
         parts.append("")
         parts += [ruleset_line(manifest, report), toggles_line(manifest, report), scanning_line(manifest, report)]
         parts.append("")
-        parts.append(uninstall_sentence(manifest))
+        parts.append(uninstalled_sentence(manifest) if report.get("uninstalled") else uninstall_sentence(manifest))
     elif outcome == "not-installed":
         parts.append(f"None of the settings was changed: no token for this repository could be made from the"
                      f" {SETUP_APP} App, which means it is not installed on this repository, or its installation"

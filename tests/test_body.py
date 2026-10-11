@@ -216,6 +216,10 @@ class Body(unittest.TestCase):
         self.assertIn("- Delete head branches on merge and allow auto-merge: on.", body)
         self.assertIn("- Secret scanning and push protection: on.", body)
         self.assertIn("uninstall it at https://github.com/settings/installations, since it holds Administration", body)
+        body = self.body(settings=dict(report(), uninstalled=True))
+        self.assertIn("The Setup App uninstalled itself once that was done, this repository being the only one its"
+                      " installation reached.", body)
+        self.assertNotIn("uninstall it at", body)
         self.assertIn("2. The GitHub side is set up (Settings above), so `bash scripts/setup-repo.sh` is not needed",
                       body)
         self.assertIn("is done but for GitHub's reading of `.github/CODEOWNERS`", body)

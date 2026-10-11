@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Installed the App and landed here? Press Create: the pull request is open in that repository in about two minutes, with the whole template for an empty repository and the protocol alone for one with files. Came here on your own? Install the App first (https://github.com/apps/openspine-sdlc/installations/new) or name the repository below. With the Setup App on the repository too (https://github.com/apps/openspine-sdlc-setup/installations/new, "Only select repositories"), the run also applies its settings; that App holds Administration for this one run, and you uninstall it afterwards. This issue is public: a name typed here shows, an installation's number says nothing.
+        Installed the App and landed here? Press Create: a pull request is open in each repository the installation reaches that has no adoption yet, within about two minutes. For the repository's settings too (ruleset, auto-merge, secret scanning), install the Setup App first, https://github.com/apps/openspine-sdlc-setup/installations/new ("Only select repositories"): it brings you back here, holds Administration for the one run, and uninstalls itself when done. Came here on your own? Install the App first (https://github.com/apps/openspine-sdlc/installations/new) or name the repository below. This issue is public: a name typed here shows, an installation's number says nothing.
   - type: input
     id: installation_id
     attributes:
@@ -18,8 +18,19 @@ body:
     id: repository
     attributes:
       label: Repository
-      description: OWNER/NAME, only when you came here without installing. With an installation, the run takes its one repository with no adoption yet, or the newest created among several.
+      description: OWNER/NAME, only when you came here without installing.
       placeholder: OWNER/NAME
+    validations:
+      required: false
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - "Auto: the whole template into an empty repository, the protocol alone into one with files"
+        - "Empty repository: the whole template"
+        - "Existing repository: the protocol only"
+      default: 0
     validations:
       required: false
   - type: checkboxes
@@ -27,5 +38,5 @@ body:
     attributes:
       label: Options
       options:
+        - label: Merge the pull request for me
         - label: Do not share anonymous aggregates (counts, durations and rates of the protocol at work, never code, text or names; the switch is .github/sdlc-metrics)
-        - label: The protocol only, even into an empty repository
