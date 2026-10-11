@@ -12,17 +12,28 @@ same account, narrowed to the repositories the Setup App was given.
 Of the installation's repositories, those with no adoption yet (the
 sweep's own rules in sweep.py: a commit, no branch symphony/adopt, no
 docs/agents/PROTOCOL.md, no opt-out) that the issue's author administers
-are the ones to adopt, newest first, at most LIMIT of them. The file --out
+are the ones to adopt, newest first, at most LIMIT of them: one, the
+newest, so that one press never reaches further than one repository (on
+2026-10-11 an installation on all of an account's repositories, with
+"Merge the pull request for me" ticked, merged the adoption into eight
+before the run was cancelled); the person presses Create again for the
+next, or names a repository on the form. With SETUP_JWT set, only a
+repository the Setup App is installed on is a candidate, asked by id with
+that App's JWT before the newest is chosen: the Setup App's installation
+is the person's choice of repository and their consent to the settings it
+applies for the one run, so an account with the App on all its
+repositories and the Setup App on one gets that one. Without SETUP_JWT
+there is no such filter. The file --out
 gets installation_id, repository_ids (a JSON list) and count, as KEY=value
 lines for $GITHUB_OUTPUT; stdout says how many and nothing else.
 
 Exit 0 with something to adopt; 3 when there is nothing (an installation
-that is neither App's, no repository with no adoption yet, or none the
-author administers), which the workflow answers with one message whatever
-the reason; 4 when the App's own record cannot be read, which is the
-front door's owner's problem; 1 when GitHub could not be asked. APP_JWT
-is the App's JWT (scripts/jwt.sh); SETUP_JWT, when set, the Setup App's.
-Python 3.12 or later, standard library only.
+that is neither App's, no repository with no adoption yet, none the
+author administers, or none the Setup App reaches), which the workflow
+answers with one message whatever the reason; 4 when the App's own record
+cannot be read, which is the front door's owner's problem; 1 when GitHub
+could not be asked. APP_JWT is the App's JWT (scripts/jwt.sh); SETUP_JWT,
+when set, the Setup App's. Python 3.12 or later, standard library only.
 """
 
 import argparse
@@ -36,7 +47,7 @@ import sweep  # noqa: E402
 
 NOTHING = 3
 BROKEN = 4
-LIMIT = 100
+LIMIT = 1
 
 
 class Nothing(Exception):
@@ -97,6 +108,22 @@ def administered(github, repositories, author):
     return kept
 
 
+def reached_by_the_setup_app(setup, repositories):
+    """The repositories among these the Setup App is installed on, asked
+    by id with its JWT: 200 is its installation there, 404 that it has
+    none, and any other answer is GitHub's to explain."""
+    kept = []
+    for repository in repositories:
+        try:
+            setup.call("GET", f"/repositories/{repository['id']}/installation")
+        except sweep.GitHubError as refusal:
+            if refusal.status == 404:
+                continue
+            raise
+        kept.append(repository)
+    return kept
+
+
 def only_the_setup_apps(setup, installation):
     """The ids of the repositories a Setup App installation was given, or
     None when it was given them all."""
@@ -128,6 +155,8 @@ def resolve(app, setup, installation_id, author):
         repositories = repositories_of(github)
         if only is not None:
             repositories = [repository for repository in repositories if repository["id"] in only]
+        if setup is not None:
+            repositories = reached_by_the_setup_app(setup, repositories)
         mine = administered(github, sweep.unadopted(github, repositories), author)
     finally:
         sweep.revoke(github)

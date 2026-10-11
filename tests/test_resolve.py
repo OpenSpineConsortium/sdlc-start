@@ -35,12 +35,14 @@ SETUP = {"id": 90, "account": {"id": 500, "login": "mona"}, "repository_selectio
 class Transport:
     """(status, body) by (token, method, path); the main App's JWT is
     'app', the Setup App's 'setup', the minted tokens name their
-    installation."""
+    installation. setup_on lists the ids of the repositories the Setup
+    App is installed on, every one by default."""
 
-    def __init__(self, answers=None, repositories=(FREE, OLDER, ADOPTED), permissions=None):
+    def __init__(self, answers=None, repositories=(FREE, OLDER, ADOPTED), permissions=None, setup_on=None):
         self.answers = dict(answers or {})
         self.repositories = list(repositories)
         self.permissions = {1: "admin", 2: "admin", 3: "admin"} if permissions is None else permissions
+        self.setup_on = {item["id"] for item in self.repositories} if setup_on is None else set(setup_on)
         self.calls = []
 
     def __call__(self, method, url, headers, body):
@@ -78,6 +80,9 @@ class Transport:
         if "/collaborators/" in path:
             number = int(path.split("/")[2])
             return 200, {"permission": self.permissions.get(number, "none")}
+        if token == "setup" and path.startswith("/repositories/") and path.endswith("/installation"):
+            number = int(path.split("/")[2])
+            return (200, SETUP) if number in self.setup_on else NOT_FOUND
         return NOT_FOUND
 
 
@@ -96,15 +101,41 @@ class Resolving(unittest.TestCase):
         written = self.out.read_text(encoding="utf-8") if self.out.exists() else None
         return code, written, out.getvalue(), err.getvalue()
 
-    def test_the_apps_own_installation_gives_every_unadopted_repository_newest_first(self):
+    def test_the_apps_own_installation_gives_the_newest_unadopted_repository(self):
+        """One press, one repository: the newest with no adoption yet, so a
+        press never reaches further than one (eight were merged on
+        2026-10-11 before LIMIT was one)."""
         transport = Transport()
         code, written, out, err = self.run_resolve(transport)
         self.assertEqual((code, err), (0, ""))
-        self.assertEqual(written, "installation_id=70\nrepository_ids=[1, 2]\ncount=2\n")
-        self.assertEqual(out, "the installation reaches 2 repositories to adopt\n")
+        self.assertEqual(written, "installation_id=70\nrepository_ids=[1]\ncount=1\n")
+        self.assertEqual(out, "the installation reaches 1 repository to adopt\n")
         # Everything by id: no path carries a name, and the token is revoked.
         self.assertFalse([path for _, _, path in transport.calls if "/repos/" in path])
         self.assertIn(("token-app-70", "DELETE", "/installation/token"), transport.calls)
+
+    def test_only_a_repository_the_setup_app_is_installed_on(self):
+        """The Setup App's installation is the person's choice of repository
+        and their consent to the settings: an account with the App on all
+        its repositories and the Setup App on one gets that one, by id with
+        the Setup App's JWT; on none, nothing; without the Setup App's
+        JWT, no filter, and the newest of all."""
+        transport = Transport(setup_on=[2])
+        code, written, _, _ = self.run_resolve(transport)
+        self.assertEqual((code, written), (0, "installation_id=70\nrepository_ids=[2]\ncount=1\n"))
+        self.assertIn(("setup", "GET", "/repositories/1/installation"), transport.calls)
+        self.assertFalse([path for _, _, path in transport.calls if "/repos/" in path])
+        self.assertEqual(self.run_resolve(Transport(setup_on=[]))[0], 3)
+        transport = Transport(setup_on=[2])
+        code, written, _, _ = self.run_resolve(transport, setup=False)
+        self.assertEqual((code, written), (0, "installation_id=70\nrepository_ids=[1]\ncount=1\n"))
+        self.assertFalse([call for call in transport.calls if call[0] == "setup"])
+        # An answer that is neither 200 nor 404 is GitHub failing, not a
+        # repository without the App.
+        transport = Transport({("setup", "GET", "/repositories/1/installation"): (500, {"message": "boom"})})
+        code, written, out, err = self.run_resolve(transport)
+        self.assertEqual((code, written, out), (1, None, ""))
+        self.assertNotIn("mona", err)
 
     def test_only_what_the_author_administers(self):
         transport = Transport(permissions={1: "write", 2: "admin"})
@@ -122,6 +153,7 @@ class Resolving(unittest.TestCase):
         self.assertEqual((code, written), (0, "installation_id=70\nrepository_ids=[1]\ncount=1\n"))
         self.assertIn(("setup", "GET", "/app/installations/90"), transport.calls)
         self.assertIn(("token-setup-90", "DELETE", "/installation/token"), transport.calls)
+        self.assertFalse([path for _, _, path in transport.calls if "/repos/" in path])
         # Without the Setup App's JWT, or with a number neither App knows, nothing.
         self.assertEqual(self.run_resolve(Transport(), installation="90", setup=False)[0], 3)
         self.assertEqual(self.run_resolve(Transport(), installation="12345")[0], 3)

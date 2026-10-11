@@ -64,7 +64,7 @@ class TheForm(unittest.TestCase):
         kind = self.text.index("    id: kind\n")
         self.assertIn("      default: 0\n", self.text[kind:self.text.index("    id: options\n")])
         self.assertNotIn("required: true", self.text)
-        self.assertLess(self.text.index("    id: installation_id\n"), self.text.index("    id: repository\n"))
+        self.assertLess(self.text.index("    id: installation_id\n"), self.text.index("    id: state\n"))
         run = (ROOT / ".github/workflows/adopt-run.yml").read_text(encoding="utf-8")
         self.assertIn('if [ "$mode" = read ]; then', run)
         self.assertIn("sweep.classify_tree", run)
@@ -73,6 +73,16 @@ class TheForm(unittest.TestCase):
         self.assertIn("env.MODE == 'new'", run)
         self.assertEqual(run.count("inputs.mode"), 1)
         self.assertIn("spec+=(--kind-read)", run)
+
+    def test_the_repository_field_is_named_state(self):
+        """GitHub returns the install link's state parameter in the Setup
+        URL's query, and an issue form fills the field whose id matches a
+        query parameter, so the repository the extension's button carries
+        as state arrives filled in; the label stays Repository, which parse
+        reads."""
+        self.assertIn("    id: state\n    attributes:\n      label: Repository\n", self.text)
+        self.assertNotIn("id: repository", self.text)
+        self.assertIn("extension's button", self.text)
 
     def test_the_label_and_the_title(self):
         self.assertIn('labels: ["adopt"]\n', self.text)
@@ -83,7 +93,9 @@ class TheForm(unittest.TestCase):
         sentences, which still say what is shared, where the switch is,
         that the issue is public and where the App is installed."""
         for words in ("never code, text or names", ".github/symphony-metrics", "This issue is public", "installations/new",
-                      "Press Create", "each repository the installation reaches", "uninstalls itself"):
+                      "Press Create", "the newest repository the installation reaches", "press Create again",
+                      "Both Apps are needed", "https://github.com/apps/symphonyboard/installations/new",
+                      "uninstalls itself", "without the Setup App is refused"):
             self.assertIn(words, self.text)
         prose = re.search(r"value: \|\n((?:        .*\n)+)", self.text).group(1)
         self.assertLess(len(prose.split()), 140)
@@ -142,7 +154,7 @@ class TheWorkflows(unittest.TestCase):
         self.assertIn("installation_id: ${{ needs.request.outputs.installation_id }}", text)
         self.assertIn("repository_id: ${{ matrix.repository_id }}", text)
         self.assertIn("secrets: inherit", text)
-        for word in ("target-token", "template-token", "setup-token", "gh pr create"):
+        for word in ("target-token", "template-token", "gh pr create"):
             self.assertNotIn(word, text)
 
     def test_a_form_from_the_install_is_resolved_silently_and_answered_without_a_name(self):
@@ -244,14 +256,58 @@ class TheWorkflows(unittest.TestCase):
         self.assertTrue(main_mints)
         for step in main_mints:
             self.assertNotIn("administration", step)
-        # The issue path holds the Setup App's key only to sign the JWT that
-        # tells its installation's number from the App's: no token with
-        # Administration is minted there.
+        # The issue path holds the Setup App's key to sign the JWT that
+        # tells its installation's number from the App's, to read whether
+        # it is set, and to mint metadata-only tokens that say whether the
+        # Setup App is on the named repository (and, when not, whether the
+        # App itself works): no token with Administration is minted there.
         issue_path = (ROOT / ".github/workflows/adopt.yml").read_text(encoding="utf-8")
         self.assertNotIn("administration", issue_path)
-        self.assertNotIn("create-github-app-token@v1\n        id: setup", issue_path)
-        self.assertEqual(issue_path.count("secrets.SDLC_SETUP_APP_PRIVATE_KEY"), 1)
+        self.assertEqual(issue_path.count("secrets.SDLC_SETUP_APP_PRIVATE_KEY"), 4)
+        self.assertIn("secrets.SDLC_SETUP_APP_PRIVATE_KEY != ''", issue_path)
         self.assertIn('setup_jwt="$(APP_ID="$SETUP_ID" APP_PRIVATE_KEY="$SETUP_KEY" bash start/scripts/jwt.sh)"', issue_path)
+        for step in re.split(r"\n      - (?=uses:|name:)", issue_path):
+            if "vars.SDLC_SETUP_APP_ID" in step and "create-github-app-token" in step:
+                self.assertIn("permission-metadata: read", step)
+                self.assertEqual(step.count("permission-"), 1)
+
+    def test_a_named_repository_needs_the_setup_app_too(self):
+        """Installing the Setup App is the consent to the settings, so the
+        issue path mints a metadata-only token of it for the named
+        repository, probes the front door's own installation when that
+        fails, and refuses a repository without it with the install link
+        that preselects the account and the repository by id and carries
+        the name as state, which GitHub returns to the form; the
+        installation path's one refusal names the Setup App too, with its
+        install link, and the sweep is left as it was."""
+        text = (ROOT / ".github/workflows/adopt.yml").read_text(encoding="utf-8")
+        steps = ("name: Say whether this front door has the Setup App", "id: setup-token", "id: setup-probe",
+                 "name: Check that the Setup App is installed on the repository")
+        for step in steps:
+            start = text.index(step)
+            self.assertIn("steps.form.outputs.repository != ''", text[start:start + 400])
+        places = [text.index(step) for step in steps]
+        self.assertEqual(places, sorted(places))
+        self.assertLess(text.index("name: Check that the App reaches the repository"), places[0])
+        self.assertLess(places[-1], text.index("id: verdict"))
+        self.assertIn("env.SETUP_APP == 'present' && steps.setup-token.outcome == 'failure'", text)
+        self.assertIn("owner: ${{ steps.form.outputs.owner }}\n          repositories: ${{ steps.form.outputs.name }}\n", text)
+        link = ("https://github.com/apps/symphony-setup/installations/new/permissions"
+                "?suggested_target_id=$OWNER_ID&repository_ids[]=$REPOSITORY_ID&state=$TARGET")
+        self.assertIn(link, text)
+        self.assertIn('OWNER_ID="$(gh api "repos/$TARGET" --jq .owner.id)"', text)
+        self.assertIn('REPOSITORY_ID="$(gh api "repos/$TARGET" --jq .id)"', text)
+        check = text[text.index("name: Check that the Setup App is installed on the repository"):text.index("id: verdict")]
+        self.assertIn("GH_TOKEN: ${{ steps.account-token.outputs.token }}", check)
+        self.assertIn("refuse.sh --keep-open", check)
+        self.assertIn("exit 1", check)
+        resolve = text.index("name: Resolve the installation to the repositories to adopt")
+        refusal = text[text.index('refusal="', resolve):]
+        refusal = refusal[:refusal.index("\n")]
+        self.assertIn("or Symphony Setup is not installed on it", refusal)
+        self.assertIn(SETUP_APP_INSTALL, refusal)
+        sweep = (ROOT / ".github/workflows/sweep.yml").read_text(encoding="utf-8")
+        self.assertNotIn("SDLC_SETUP_APP", sweep)
 
     def test_the_settings_are_applied_after_the_push_and_before_the_pull_request(self):
         text = (ROOT / ".github/workflows/adopt-run.yml").read_text(encoding="utf-8")
