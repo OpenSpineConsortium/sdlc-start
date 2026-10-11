@@ -10,16 +10,18 @@ from trees import adopt, run
 
 OPT_OUT = adopt.OPT_OUT_OF_SHARING
 MERGE = adopt.MERGE_FOR_ME
+REVIEW = adopt.REVIEW_FIRST
 AUTO, EMPTY, EXISTING = adopt.KINDS
 
 
-def form_body(repository="octo-org/widget", installation="_No response_", kind=AUTO, merge=" ", opt_out=" ",
+def form_body(repository="octo-org/widget", installation="_No response_", kind=AUTO, merge=MERGE, opt_out=" ",
               newline="\n"):
     lines = [
         "### Installation", "", installation, "",
         "### Repository", "", repository, "",
         "### Kind", "", kind, "",
-        "### Options", "", f"- [{merge}] {MERGE}", f"- [{opt_out}] {OPT_OUT}", "",
+        "### Merge", "", merge, "",
+        "### Options", "", f"- [{opt_out}] {OPT_OUT}", "",
     ]
     return newline.join(lines)
 
@@ -59,7 +61,7 @@ class GoodForms(unittest.TestCase):
     def test_the_form_as_github_writes_it(self):
         self.assertEqual(adopt.parse_form(form_body()), {
             "repository": "octo-org/widget", "owner": "octo-org", "name": "widget", "installation": "",
-            "mode": "read", "metrics": "on", "merge": "false",
+            "mode": "read", "metrics": "on", "merge": "true",
         })
 
     def test_the_form_as_the_install_fills_it_in(self):
@@ -68,7 +70,7 @@ class GoodForms(unittest.TestCase):
         _No response_, the kind is Auto and sharing is on."""
         fields = adopt.parse_form(form_body(repository="_No response_", installation="5268543"))
         self.assertEqual(fields, {"repository": "", "owner": "", "name": "", "installation": "5268543",
-                                  "mode": "read", "metrics": "on", "merge": "false"})
+                                  "mode": "read", "metrics": "on", "merge": "true"})
         # The kind left empty, as an older issue of the form's shape could hold it.
         self.assertEqual(adopt.parse_form(form_body(kind="_No response_"))["mode"], "read")
         # Both given: the name decides, and the installation comes along.
@@ -76,13 +78,16 @@ class GoodForms(unittest.TestCase):
         self.assertEqual((fields["repository"], fields["installation"]), ("octo-org/widget", "42"))
         self.assertEqual(adopt.parse_form(form_body(repository="", installation="7"))["installation"], "7")
 
-    def test_the_kinds_and_the_two_boxes(self):
+    def test_the_kinds_the_merge_choice_and_the_box(self):
         self.assertEqual(adopt.parse_form(form_body(kind=EMPTY))["mode"], "new")
         self.assertEqual(adopt.parse_form(form_body(kind=EXISTING))["mode"], "existing")
-        fields = adopt.parse_form(form_body(merge="x", opt_out="X"))
-        self.assertEqual((fields["merge"], fields["metrics"]), ("true", "off"))
+        fields = adopt.parse_form(form_body(merge=REVIEW, opt_out="X"))
+        self.assertEqual((fields["merge"], fields["metrics"]), ("false", "off"))
         self.assertEqual(adopt.parse_form(form_body(opt_out="X"))["metrics"], "off")
-        self.assertEqual(adopt.parse_form(form_body(merge="x"))["merge"], "true")
+        self.assertEqual(adopt.parse_form(form_body(merge=REVIEW))["merge"], "false")
+        # The merge choice is required and preselected on the form; an older issue
+        # of the form's shape without one gets the default, merge for me.
+        self.assertEqual(adopt.parse_form(form_body(merge="_No response_"))["merge"], "true")
 
     def test_carriage_returns(self):
         self.assertEqual(adopt.parse_form(form_body(newline="\r\n", opt_out="x"))["metrics"], "off")
@@ -97,12 +102,12 @@ class GoodForms(unittest.TestCase):
         self.assertEqual((code, err), (0, ""))
         self.assertEqual(out.splitlines(), [
             "repository=octo-org/widget", "owner=octo-org", "name=widget", "installation=", "mode=read", "metrics=on",
-            "merge=false",
+            "merge=true",
         ])
-        code, out, err = run(["parse"], stdin=form_body(repository="_No response_", installation="5268543", merge="x"))
+        code, out, err = run(["parse"], stdin=form_body(repository="_No response_", installation="5268543", merge=REVIEW))
         self.assertEqual((code, err), (0, ""))
         self.assertEqual(out.splitlines(), [
-            "repository=", "owner=", "name=", "installation=5268543", "mode=read", "metrics=on", "merge=true",
+            "repository=", "owner=", "name=", "installation=5268543", "mode=read", "metrics=on", "merge=false",
         ])
 
 
@@ -147,8 +152,10 @@ class BadForms(unittest.TestCase):
         reason = self.refused(form_body(repository="_No response_", installation="_No response_"))
         self.assertIn("installing the App", reason)
 
-    def test_a_box_or_a_kind_the_form_does_not_offer(self):
-        self.refused(form_body().replace(MERGE, "Something else"))
+    def test_a_box_a_kind_or_a_merge_choice_the_form_does_not_offer(self):
+        self.refused(form_body(merge="Something else"))
+        self.refused(form_body(merge=MERGE + "\nmerge=true"), quoted="merge=true")
+        self.refused(form_body() + "- [x] Merge the pull request for me\n")
         self.refused(form_body() + "- [x] mode=new\n", quoted="mode=new")
         self.refused(form_body().replace(f"- [ ] {OPT_OUT}", "share"))
         self.refused(form_body(kind="New"))

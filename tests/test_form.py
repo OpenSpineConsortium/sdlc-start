@@ -52,18 +52,22 @@ class TheForm(unittest.TestCase):
         labels = re.findall(r"^      label: (.+)$", self.text, re.MULTILINE)
         self.assertEqual(labels, list(adopt.FIELDS))
 
-    def test_every_kind_and_box_parse_reads_is_offered_and_nothing_is_required(self):
-        """From the install the form is one press: nothing is required, the
-        kind is Auto by default and sharing is on unless the person ticks
-        the box; the merge box and the two overrides are its only choices."""
-        for option in adopt.KINDS:
+    def test_every_kind_the_merge_choice_and_the_box_parse_reads_are_offered_and_nothing_needs_typing(self):
+        """From the install the form is one press: the two dropdowns are
+        required but preselected (Auto, and merge for me, since a checkbox
+        has no default), nothing needs typing, and sharing is on unless the
+        person ticks the box."""
+        for option in (*adopt.KINDS, *adopt.MERGES):
             self.assertIn(f'        - "{option}"\n', self.text)
         for option in adopt.OPTIONS:
             self.assertIn(f"        - label: {option}\n", self.text)
         self.assertEqual(adopt.KINDS[list(adopt.KINDS)[0]], "read")
-        kind = self.text.index("    id: kind\n")
-        self.assertIn("      default: 0\n", self.text[kind:self.text.index("    id: options\n")])
-        self.assertNotIn("required: true", self.text)
+        self.assertEqual(adopt.MERGES[list(adopt.MERGES)[0]], "true")
+        kind, merge, options = (self.text.index(f"    id: {name}\n") for name in ("kind", "merge", "options"))
+        for block in (self.text[kind:merge], self.text[merge:options]):
+            self.assertIn("      default: 0\n", block)
+            self.assertIn("      required: true\n", block)
+        self.assertEqual(self.text.count("required: true"), 2)
         self.assertLess(self.text.index("    id: installation_id\n"), self.text.index("    id: state\n"))
         run = (ROOT / ".github/workflows/adopt-run.yml").read_text(encoding="utf-8")
         self.assertIn('if [ "$mode" = read ]; then', run)
