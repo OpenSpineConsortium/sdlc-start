@@ -7,7 +7,10 @@ name: Adopt
 # is the front door instead. A person installs the OpenSpine SDLC App on
 # their repository and either opens the form .github/ISSUE_TEMPLATE/adopt.yml,
 # which labels the issue adopt and starts this workflow, or does nothing
-# more and lets the sweep (sweep.yml) find the installation. This workflow
+# more and lets the sweep (sweep.yml) find the installation. The install
+# itself ends on the form: the App's Setup URL is the form, and GitHub
+# sends the person there with the installation's number filled in, so the
+# form carries either a repository's name or that number. This workflow
 # is the issue path: it reads the form, checks the author and the App's
 # reach, answers what it refuses, and then calls adopt-run.yml, which does
 # the adoption itself for both paths and whose header says how.
@@ -24,7 +27,15 @@ name: Adopt
 # an administrator, and both get one answer. When the first token cannot
 # be made, a probe on the App's own account tells a broken App (a wrong id
 # or key here, which is the owner's to fix: the issue stays open and the
-# run ends red) from an account that did not install it. GitHub's own
+# run ends red) from an account that did not install it. A form that
+# carries the installation's number and no name is resolved with the
+# App's own JWT: the installation's token, with metadata alone, lists the
+# repositories it reaches, and the one it holds is the request's, once
+# the author is read as its administrator; several, none, an installation
+# that is not this App's and an author who is not an administrator get
+# one answer, so a guessed number learns nothing, and the name, which no
+# issue typed, is masked here and never passed on: the adoption run gets
+# the ids and resolves it again for itself. GitHub's own
 # token, which may write only this repository's issues, posts every
 # answer. A refusal (scripts/refuse.sh) comments, closes the issue as not
 # planned and ends the run green; anything else that fails comments with
@@ -61,6 +72,8 @@ jobs:
     outputs:
       refused: ${{ steps.verdict.outputs.refused }}
       repository: ${{ steps.form.outputs.repository }}
+      installation: ${{ steps.form.outputs.installation }}
+      repository_id: ${{ steps.resolve.outputs.repository_id }}
       mode: ${{ steps.form.outputs.mode }}
       metrics: ${{ steps.form.outputs.metrics }}
     steps:
@@ -95,12 +108,71 @@ jobs:
             bash start/scripts/refuse.sh "Nothing was done: ${reason}. Open a new request with the form once that is put right; this one is closed."
           fi
 
+      # The form came from the install: the installation's number and no
+      # name. Its token, with metadata alone, says which one repository it
+      # reaches and whether the author administers it; nothing of the
+      # repository is printed, and every refusal is the same one.
+      - name: Resolve the installation's one repository
+        id: resolve
+        if: env.REFUSED != 'true' && steps.form.outputs.repository == ''
+        env:
+          APP_ID: ${{ vars.SDLC_APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.SDLC_APP_PRIVATE_KEY }}
+          INSTALLATION: ${{ steps.form.outputs.installation }}
+          AUTHOR: ${{ github.event.issue.user.login }}
+          ISSUE_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          refusal="Nothing was done: the installation this form carried is not one of the OpenSpine SDLC App's, or it reaches more than one repository, or your account is not an administrator of the one it reaches. Open a new request with the form naming the repository as OWNER/NAME, as an administrator of it; this one is closed."
+          accept="Accept: application/vnd.github+json"
+          reply="$RUNNER_TEMP/reply"
+          jwt="$(bash start/scripts/jwt.sh)"
+          echo "::add-mask::$jwt"
+          status="$(curl -sS -o "$reply" -w '%{http_code}' -X POST -H "Authorization: Bearer $jwt" -H "$accept" \
+            -d '{"permissions":{"metadata":"read"}}' "https://api.github.com/app/installations/$INSTALLATION/access_tokens")"
+          if [ "$status" != 201 ]; then
+            app="$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $jwt" -H "$accept" https://api.github.com/app)"
+            if [ "$app" != 200 ]; then
+              bash start/scripts/refuse.sh --keep-open "Nothing was done yet: this front door's App is not working (its id or private key here is wrong, or GitHub did not answer), which is for the owner of this repository to put right; the run is $RUN. This issue stays open, and its run can be started again once that is done."
+              exit 1
+            fi
+            bash start/scripts/refuse.sh "$refusal"
+            exit 0
+          fi
+          token="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["token"])' "$reply")"
+          echo "::add-mask::$token"
+          curl -sS -o "$reply" -H "Authorization: Bearer $token" -H "$accept" "https://api.github.com/installation/repositories?per_page=2"
+          python3 -c 'import json, sys
+          data = json.load(open(sys.argv[1]))
+          found = data.get("repositories") if isinstance(data, dict) else None
+          found = found if isinstance(found, list) else []
+          print(data.get("total_count", len(found)) if isinstance(data, dict) else 0)
+          if len(found) == 1:
+              print(found[0]["id"])
+              print(found[0]["full_name"])' "$reply" > "$RUNNER_TEMP/one"
+          count="$(sed -n 1p "$RUNNER_TEMP/one")"
+          permission=none
+          if [ "$count" = 1 ]; then
+            full="$(sed -n 3p "$RUNNER_TEMP/one")"
+            echo "::add-mask::$full"
+            echo "::add-mask::${full%%/*}"
+            echo "::add-mask::${full#*/}"
+            permission="$(GH_TOKEN="$token" gh api "repos/$full/collaborators/$AUTHOR/permission" --jq .permission 2>/dev/null || echo none)"
+          fi
+          curl -sS -X DELETE -H "Authorization: Bearer $token" -H "$accept" https://api.github.com/installation/token -o /dev/null || true
+          if [ "$permission" != admin ]; then
+            bash start/scripts/refuse.sh "$refusal"
+            exit 0
+          fi
+          echo "repository_id=$(sed -n 2p "$RUNNER_TEMP/one")" >> "$GITHUB_OUTPUT"
+          echo "the installation reaches one repository, which the author administers; its name stays out of this log"
+
       # For the account alone, with metadata read: it fails only when that
       # account did not install the App, and says nothing about the
       # repository, on which the log would otherwise carry a verdict.
       - uses: actions/create-github-app-token@v1
         id: account-token
-        if: env.REFUSED != 'true'
+        if: env.REFUSED != 'true' && steps.form.outputs.repository != ''
         continue-on-error: true
         with:
           app-id: ${{ vars.SDLC_APP_ID }}
@@ -113,7 +185,7 @@ jobs:
       # requester.
       - uses: actions/create-github-app-token@v1
         id: app-probe
-        if: env.REFUSED != 'true' && steps.account-token.outcome == 'failure'
+        if: env.REFUSED != 'true' && steps.form.outputs.repository != '' && steps.account-token.outcome == 'failure'
         continue-on-error: true
         with:
           app-id: ${{ vars.SDLC_APP_ID }}
@@ -125,7 +197,7 @@ jobs:
       # reads as none, the same as an author without admin rights, and the
       # log says nothing about the repository either way.
       - name: Check that the App reaches the repository and the author administers it
-        if: env.REFUSED != 'true'
+        if: env.REFUSED != 'true' && steps.form.outputs.repository != ''
         env:
           ACCOUNT_OUTCOME: ${{ steps.account-token.outcome }}
           PROBE_OUTCOME: ${{ steps.app-probe.outcome }}
@@ -172,6 +244,8 @@ jobs:
     uses: ./.github/workflows/adopt-run.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
+      installation_id: ${{ needs.request.outputs.installation }}
+      repository_id: ${{ needs.request.outputs.repository_id }}
       mode: ${{ needs.request.outputs.mode }}
       metrics: ${{ needs.request.outputs.metrics }}
       requester: ${{ github.event.issue.user.login }}

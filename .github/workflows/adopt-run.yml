@@ -2,18 +2,21 @@ name: Adopt (run)
 
 # One adoption, from the token that writes to the answer, for both ways a
 # request arrives: an issue on this repository's form, whose workflow
-# adopt.yml checks the form and the author and then calls this one with
-# the repository's name, and the sweep (sweep.yml), which finds a
-# repository the App was installed on and starts this workflow by
-# dispatch with the installation's and the repository's ids, since
-# installing the App is a request too. The two differ in what is public:
-# a name typed into a public issue is public already, so the issue path
-# prints it; a repository the sweep found may be private, so its name
-# never reaches this log or the run's inputs: the ids come in, the App's
-# own JWT mints a metadata-only token for that one repository, the id is
-# resolved to a name, and the name, the owner's, the requester's and
-# the default branch's are masked before anything else can print them;
-# the head commit the checkout prints names nothing. The names stay inside this one job, so the environment
+# adopt.yml checks the form and the author and then calls this one, and
+# the sweep (sweep.yml), which finds a repository the App was installed
+# on and starts this workflow by dispatch, since installing the App is a
+# request too. What comes in is a name or a pair of ids, and that decides
+# what is public: a name typed into a public issue is public already, so
+# a run given one prints it and names it in its answers; a repository
+# given by the installation's and the repository's ids, from the sweep or
+# from a form that came from the install with the number filled in, may
+# be private and was named on no issue, so its name never reaches this
+# log, the run's inputs or the issue: the App's own JWT mints a
+# metadata-only token for that one repository, the id is resolved to a
+# name, the name, the owner's, the requester's and the default branch's
+# are masked before anything else can print them, and the answers say
+# "your repository" (SAID, with the links left out); the head commit the
+# checkout prints names nothing. The names stay inside this one job, so the environment
 # carries them (one sed line sets the three); only a job output, which
 # GitHub drops when it holds a masked value, could not. The issue path
 # brings the requester (the issue's author, an administrator by the
@@ -39,9 +42,17 @@ on:
   workflow_call:
     inputs:
       repository:
-        description: The repository as OWNER/NAME, which the form made public
+        description: The repository as OWNER/NAME, which the form made public; empty when the form carried the ids below
         type: string
-        required: true
+        required: false
+      installation_id:
+        description: The App's installation that holds the repository, when the form came from the install
+        type: string
+        required: false
+      repository_id:
+        description: The repository's numeric id, with the installation's, never its name
+        type: string
+        required: false
       mode:
         type: string
         required: true
@@ -99,10 +110,13 @@ jobs:
           path: start
           persist-credentials: false
 
-      # By name from the issue path; by ids from the sweep, resolved with a
-      # metadata-only token of the App's own JWT and masked at once. Both
-      # go through adopt.py name, which refuses a name that is not
-      # OWNER/NAME or is one of the front door's own repositories.
+      # By name from the form; by ids from the sweep or from a form that
+      # came from the install, resolved with a metadata-only token of the
+      # App's own JWT and masked at once. Both go through adopt.py name,
+      # which refuses a name that is not OWNER/NAME or is one of the front
+      # door's own repositories. SOURCE is how the request came (an issue
+      # or the installation alone), SAID how the answers name the
+      # repository.
       - name: Name the repository
         env:
           REPOSITORY: ${{ inputs.repository }}
@@ -112,12 +126,16 @@ jobs:
           APP_ID: ${{ vars.SDLC_APP_ID }}
           APP_PRIVATE_KEY: ${{ secrets.SDLC_APP_PRIVATE_KEY }}
         run: |
-          if [ -n "$REPOSITORY" ]; then
+          if [ -n "$ISSUE" ]; then
             echo "SOURCE=issue" >> "$GITHUB_ENV"
-            echo "REQUESTER=$REQUESTER_GIVEN" >> "$GITHUB_ENV"
           else
             echo "SOURCE=installation" >> "$GITHUB_ENV"
-            echo "REQUESTER=" >> "$GITHUB_ENV"
+          fi
+          echo "REQUESTER=$REQUESTER_GIVEN" >> "$GITHUB_ENV"
+          if [ -n "$REPOSITORY" ]; then
+            named=public
+          else
+            named=masked
             case "$INSTALLATION_ID" in ""|*[!0-9]*) echo "installation_id must be a number"; exit 1 ;; esac
             case "$REPOSITORY_ID" in ""|*[!0-9]*) echo "repository_id must be a number"; exit 1 ;; esac
             jwt="$(bash start/scripts/jwt.sh)"
@@ -141,6 +159,18 @@ jobs:
             exit 1
           fi
           sed 's/^repository=/TARGET=/; s/^owner=/OWNER=/; s/^name=/NAME=/' "$RUNNER_TEMP/named" >> "$GITHUB_ENV"
+          target="$(sed -n 's/^repository=//p' "$RUNNER_TEMP/named")"
+          if [ "$named" = public ]; then
+            echo "SAID=$target" >> "$GITHUB_ENV"
+            echo "PULLS_LINK=https://github.com/$target/pulls" >> "$GITHUB_ENV"
+            echo "BRANCHES_LINK=https://github.com/$target/branches" >> "$GITHUB_ENV"
+            echo "SETTINGS_WORDS=https://github.com/$target/settings/rules and https://github.com/$target/settings" >> "$GITHUB_ENV"
+          else
+            echo "SAID=your repository" >> "$GITHUB_ENV"
+            echo "PULLS_LINK=" >> "$GITHUB_ENV"
+            echo "BRANCHES_LINK=" >> "$GITHUB_ENV"
+            echo "SETTINGS_WORDS=your repository's settings, Rules and General" >> "$GITHUB_ENV"
+          fi
 
       # The token that writes, for this one repository, now that the author
       # is known to administer it: contents for the push, pull-requests for
@@ -175,7 +205,7 @@ jobs:
           ISSUE_TOKEN: ${{ github.token }}
         run: |
           if [ "$TOKEN_OUTCOME" != success ]; then
-            bash start/scripts/refuse.sh "Nothing was done: the App's installation for $TARGET does not grant everything the pull request needs. The usual reason is that it has not yet accepted the permission Workflows: Read and write, which a pull request that adds files under .github/workflows needs; an owner of the account accepts it on the page of installed GitHub Apps, OpenSpine SDLC, Review request. Then open a new request with the form; this one is closed."
+            bash start/scripts/refuse.sh "Nothing was done: the App's installation for $SAID does not grant everything the pull request needs. The usual reason is that it has not yet accepted the permission Workflows: Read and write, which a pull request that adds files under .github/workflows needs; an owner of the account accepts it on the page of installed GitHub Apps, OpenSpine SDLC, Review request. Then open a new request with the form; this one is closed."
             exit 0
           fi
           gh api "repos/$TARGET" --jq '"default_branch=" + .default_branch, "owner_type=" + .owner.type' > "$RUNNER_TEMP/target"
@@ -203,16 +233,16 @@ jobs:
             echo "REQUESTER=$requester" >> "$GITHUB_ENV"
           fi
           if ! gh api "repos/$TARGET/branches/$branch" --silent 2>/dev/null; then
-            bash start/scripts/refuse.sh "Nothing was done: $TARGET has no commit yet, and a pull request needs a branch to go into. Add a first commit (a README is enough), then open a new request with the form; this one is closed."
+            bash start/scripts/refuse.sh "Nothing was done: $SAID has no commit yet, and a pull request needs a branch to go into. Add a first commit (a README is enough), then open a new request with the form; this one is closed."
             exit 0
           fi
           taken="$(gh api "repos/$TARGET/git/matching-refs/heads/sdlc/adopt" --jq '[.[] | select(.ref == "refs/heads/sdlc/adopt")] | length')"
           if [ "$taken" != 0 ]; then
             open="$(gh api "repos/$TARGET/pulls?state=open&head=$OWNER:sdlc/adopt" --jq 'length')"
             if [ "$open" != 0 ]; then
-              bash start/scripts/refuse.sh "Nothing was done: $TARGET already has the adoption pull request open, from the branch sdlc/adopt (https://github.com/$TARGET/pulls). Review and merge that one, or close it and delete its branch sdlc/adopt before a new request; this one is closed."
+              bash start/scripts/refuse.sh "Nothing was done: $SAID already has the adoption pull request open, from the branch sdlc/adopt${PULLS_LINK:+ ($PULLS_LINK)}. Review and merge that one, or close it and delete its branch sdlc/adopt before a new request; this one is closed."
             else
-              bash start/scripts/refuse.sh "Nothing was done: $TARGET already has a branch sdlc/adopt, from an earlier request. Delete it at https://github.com/$TARGET/branches, then open a new request with the form; this one is closed."
+              bash start/scripts/refuse.sh "Nothing was done: $SAID already has a branch sdlc/adopt, from an earlier request. Delete it${BRANCHES_LINK:+ at $BRANCHES_LINK}, then open a new request with the form; this one is closed."
             fi
           fi
 
@@ -332,7 +362,7 @@ jobs:
             exit 1
           fi
           if git diff --cached --quiet; then
-            bash "$refuse" "Nothing was done: $TARGET has every file this adoption brings already; this issue is closed."
+            bash "$refuse" "Nothing was done: $SAID has every file this adoption brings already; this issue is closed."
             exit 0
           fi
           printf '%s\n\n%s\n' "$(cat "$RUNNER_TEMP/title")" \
@@ -351,9 +381,9 @@ jobs:
             # the branch, and this one was turned away as not fast-forward.
             taken="$(gh api "repos/$TARGET/git/matching-refs/heads/sdlc/adopt" --jq '[.[] | select(.ref == "refs/heads/sdlc/adopt")] | length' 2>/dev/null || echo 0)"
             if [ "$taken" != 0 ]; then
-              bash "$refuse" "Nothing was done: another request for $TARGET pushed the branch sdlc/adopt while this one ran, and its pull request is the one to review (https://github.com/$TARGET/pulls); this issue is closed."
+              bash "$refuse" "Nothing was done: another request for $SAID pushed the branch sdlc/adopt while this one ran, and its pull request is the one to review${PULLS_LINK:+ ($PULLS_LINK)}; this issue is closed."
             else
-              bash "$refuse" "Nothing was done: GitHub refused the push of the branch sdlc/adopt to $TARGET; a ruleset or a branch protection there may stand in its way. Let the App push that branch, then open a new request with the form; this one is closed."
+              bash "$refuse" "Nothing was done: GitHub refused the push of the branch sdlc/adopt to $SAID; a ruleset or a branch protection there may stand in its way. Let the App push that branch, then open a new request with the form; this one is closed."
             fi
           fi
 
@@ -630,7 +660,7 @@ jobs:
           case "${SETTINGS:-}" in
             applied|not-reported) settings=" The pull request's section Settings says what the Setup App could do for the repository's settings; uninstall that App now, since that was its one job." ;;
           esac
-          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Done: the pull request is open in $TARGET, from the branch sdlc/adopt: https://github.com/$TARGET/pulls. Read it, then merge it; it lists every file it brings and the steps that are left.$issue$settings This issue is closed."
+          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Done: the pull request is open in $SAID, from the branch sdlc/adopt${PULLS_LINK:+: $PULLS_LINK}. Read it, then merge it; it lists every file it brings and the steps that are left.$issue$settings This issue is closed."
           gh issue close "$ISSUE" --repo "$GITHUB_REPOSITORY" --reason completed
 
       # The front door's own Setup App not working is the owner's to fix,
@@ -668,6 +698,6 @@ jobs:
         run: |
           settings=""
           if [ "$SETUP_MINTED" = success ]; then
-            settings=" This run had made the Setup App's token before it stopped, so some of the repository's settings may be applied: review https://github.com/$TARGET/settings/rules and https://github.com/$TARGET/settings, and uninstall the Setup App now."
+            settings=" This run had made the Setup App's token before it stopped, so some of the repository's settings may be applied: review $SETTINGS_WORDS, and uninstall the Setup App now."
           fi
           gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Something went wrong while handling this request, and it stopped; the run is $RUN. This issue stays open for the owner of this repository to look at. If the run pushed a branch sdlc/adopt to your repository before it stopped, delete that branch before a new request.$settings"

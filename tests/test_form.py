@@ -115,16 +115,62 @@ class TheWorkflows(unittest.TestCase):
 
     def test_the_issue_path_checks_and_then_calls_the_shared_run(self):
         """The adoption itself is one workflow for both paths; the issue
-        path hands it the name the form made public, the author and the
-        issue, and only after its own checks passed."""
+        path hands it the name the form made public, or the ids of a form
+        that came from the install, the author and the issue, and only
+        after its own checks passed."""
         text = (ROOT / ".github/workflows/adopt.yml").read_text(encoding="utf-8")
         self.assertIn("uses: ./.github/workflows/adopt-run.yml", text)
         self.assertIn("if: needs.request.result == 'success' && needs.request.outputs.refused != 'true'", text)
         self.assertIn("requester: ${{ github.event.issue.user.login }}", text)
         self.assertIn("issue: ${{ github.event.issue.number }}", text)
+        self.assertIn("installation_id: ${{ needs.request.outputs.installation }}", text)
+        self.assertIn("repository_id: ${{ needs.request.outputs.repository_id }}", text)
         self.assertIn("secrets: inherit", text)
         for word in ("target-token", "template-token", "setup-token", "gh pr create"):
             self.assertNotIn(word, text)
+
+    def test_a_form_from_the_install_is_resolved_silently_and_answered_without_a_name(self):
+        """The install fills in the installation's number and no name: the
+        issue path lists that installation's repositories with the App's
+        JWT, takes the one it holds once the author administers it, gives
+        every failure one answer, masks the name and passes ids on; the
+        run then names the repository in its answers only when the form
+        named it."""
+        text = (ROOT / ".github/workflows/adopt.yml").read_text(encoding="utf-8")
+        resolve = text.index("name: Resolve the installation's one repository")
+        self.assertIn("if: env.REFUSED != 'true' && steps.form.outputs.repository == ''", text[resolve:])
+        self.assertIn("bash start/scripts/jwt.sh", text)
+        self.assertIn("/app/installations/$INSTALLATION/access_tokens", text)
+        self.assertIn('-d \'{"permissions":{"metadata":"read"}}\'', text)
+        self.assertIn("installation/repositories?per_page=2", text)
+        self.assertIn('echo "::add-mask::$full"', text)
+        self.assertIn('gh api "repos/$full/collaborators/$AUTHOR/permission"', text)
+        self.assertEqual(text.count('bash start/scripts/refuse.sh "$refusal"'), 2)
+        self.assertIn('echo "repository_id=$(sed -n 2p "$RUNNER_TEMP/one")" >> "$GITHUB_OUTPUT"', text)
+        self.assertNotIn("echo \"$full", text)
+        for step in ("id: account-token", "id: app-probe", "name: Check that the App reaches the repository"):
+            start = text.index(step)
+            self.assertIn("steps.form.outputs.repository != ''", text[start:start + 400])
+        run = (ROOT / ".github/workflows/adopt-run.yml").read_text(encoding="utf-8")
+        call = run.split("  workflow_dispatch:\n")[0]
+        for name in ("installation_id", "repository_id"):
+            self.assertIn(f"      {name}:\n", call)
+        self.assertIn('if [ -n "$ISSUE" ]; then\n            echo "SOURCE=issue"', run)
+        self.assertIn('echo "SAID=your repository" >> "$GITHUB_ENV"', run)
+        self.assertIn('echo "SAID=$target" >> "$GITHUB_ENV"', run)
+        self.assertNotIn('refuse.sh "Nothing was done: $TARGET', run)
+        self.assertNotIn('"$refuse" "Nothing was done: $TARGET', run)
+        self.assertNotIn("https://github.com/$TARGET/pulls", run)
+        self.assertNotIn("https://github.com/$TARGET/settings", run)
+        self.assertIn("Done: the pull request is open in $SAID, from the branch sdlc/adopt${PULLS_LINK:+: $PULLS_LINK}.", run)
+        form = FORM.read_text(encoding="utf-8")
+        self.assertIn("    id: installation_id\n", form)
+        self.assertIn("      label: Installation\n", form)
+        for field in ("id: repository", "id: installation_id"):
+            start = form.index(field)
+            self.assertIn("required: false", form[start:start + 600])
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("issues/new?template=adopt.yml`, and tick \"Redirect on update\"", readme)
 
     def test_the_shared_run_takes_a_name_from_the_issue_and_ids_from_the_sweep(self):
         """A name typed into a public issue is public; a repository the

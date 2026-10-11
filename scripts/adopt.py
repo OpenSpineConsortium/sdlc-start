@@ -9,7 +9,10 @@ body and labels, one subcommand per step:
   parse  reads the issue the adoption form made and prints its fields as
          KEY=value lines for $GITHUB_OUTPUT. Anyone can open an issue, so
          anything the form would not have written is refused, with one
-         line of reason that never quotes the issue back.
+         line of reason that never quotes the issue back. The repository
+         is named, or the installation GitHub filled in when the person
+         came from installing the App is given, and the workflow resolves
+         the installation's one repository itself.
   apply  copies the template into the checkout of the person's repository
          and writes a manifest of what it added, replaced, kept, merged
          and skipped. Mode new is the whole template, as "Use this
@@ -57,10 +60,13 @@ MANIFEST_SCHEMA = "sdlc-adopt/1"
 # label is a "### " heading of the issue's body, followed by its value.
 # tests/test_form.py holds the two files to the same words.
 FIELD_REPOSITORY = "Repository"
+FIELD_INSTALLATION = "Installation"
 FIELD_KIND = "Kind"
 FIELD_METRICS = "Metrics"
 FIELD_APP = "The App"
-FIELDS = (FIELD_REPOSITORY, FIELD_KIND, FIELD_METRICS, FIELD_APP)
+FIELDS = (FIELD_REPOSITORY, FIELD_INSTALLATION, FIELD_KIND, FIELD_METRICS, FIELD_APP)
+# What GitHub writes under an optional field left empty.
+NO_RESPONSE = "_No response_"
 KINDS = {
     "New repository: the whole template": "new",
     "Existing repository: the protocol only": "existing",
@@ -74,6 +80,7 @@ HEADING = re.compile(r"### (.+)")
 TICKED = re.compile(r"- \[[xX]\] (.+)")
 
 REPOSITORY = re.compile(r"[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}")
+INSTALLATION = re.compile(r"[0-9]{1,20}")
 LOGIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}")
 OWNER_TYPES = ("User", "Organization")
 # The front door and the template take no adoption of themselves.
@@ -194,6 +201,19 @@ def parse_repository(value):
     return owner, name
 
 
+def parse_installation(value):
+    """The installation's number as GitHub fills it in, or FormError."""
+    if not INSTALLATION.fullmatch(value):
+        raise FormError("the installation must be the number GitHub fills in when you come from installing the App;"
+                        " leave it empty when you name the repository")
+    return value
+
+
+def given(value):
+    """An optional field's value, empty when the person left it so."""
+    return "" if value == NO_RESPONSE else value
+
+
 def choose(value, options, field):
     """The option's short name, or FormError."""
     if value not in options:
@@ -207,16 +227,25 @@ def is_ticked(value):
 
 
 def parse_form(body):
-    """The form's fields: repository, owner, name, mode and metrics."""
+    """The form's fields: repository, owner and name (empty when only the
+    installation was given), installation (empty when the repository was
+    named without it), mode and metrics."""
     sections = form_sections(body)
     if set(sections) != set(FIELDS):
         raise FormError("the issue is not the adoption form's")
-    owner, name = parse_repository(sections[FIELD_REPOSITORY])
+    named, installed = given(sections[FIELD_REPOSITORY]), given(sections[FIELD_INSTALLATION])
+    if not named and not installed:
+        raise FormError("the repository must be named as OWNER/NAME, unless you come to the form from installing the"
+                        " App, which fills in the installation")
+    installation = parse_installation(installed) if installed else ""
+    owner, name = parse_repository(named) if named else ("", "")
     mode = choose(sections[FIELD_KIND], KINDS, FIELD_KIND)
     metrics = choose(sections[FIELD_METRICS], SHARING, FIELD_METRICS)
     if not is_ticked(sections[FIELD_APP]):
         raise FormError("the box that says the App is installed on the repository is not ticked")
-    return {"repository": f"{owner}/{name}", "owner": owner, "name": name, "mode": mode, "metrics": metrics}
+    repository = f"{owner}/{name}" if named else ""
+    return {"repository": repository, "owner": owner, "name": name, "installation": installation,
+            "mode": mode, "metrics": metrics}
 
 
 def command_name(options):

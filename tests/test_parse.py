@@ -14,9 +14,11 @@ SHARE = "Share anonymous aggregates (default)"
 KEEP = "Do not share"
 
 
-def form_body(repository="octo-org/widget", kind=NEW, metrics=SHARE, box="X", newline="\n"):
+def form_body(repository="octo-org/widget", kind=NEW, metrics=SHARE, box="X", newline="\n",
+              installation="_No response_"):
     lines = [
         "### Repository", "", repository, "",
+        "### Installation", "", installation, "",
         "### Kind", "", kind, "",
         "### Metrics", "", metrics, "",
         "### The App", "", f"- [{box}] The OpenSpine SDLC App is installed on this repository", "",
@@ -56,8 +58,22 @@ BAD_REPOSITORIES = (
 class GoodForms(unittest.TestCase):
     def test_the_form_as_github_writes_it(self):
         self.assertEqual(adopt.parse_form(form_body()), {
-            "repository": "octo-org/widget", "owner": "octo-org", "name": "widget", "mode": "new", "metrics": "on",
+            "repository": "octo-org/widget", "owner": "octo-org", "name": "widget", "installation": "",
+            "mode": "new", "metrics": "on",
         })
+
+    def test_the_form_as_the_install_fills_it_in(self):
+        """From the install, GitHub fills in the installation and the person
+        leaves the repository empty, which GitHub writes as _No response_;
+        the workflow resolves the name."""
+        fields = adopt.parse_form(form_body(repository="_No response_", installation="5268543"))
+        self.assertEqual(fields, {"repository": "", "owner": "", "name": "", "installation": "5268543",
+                                  "mode": "new", "metrics": "on"})
+        # Both given: the name decides, and the installation comes along.
+        fields = adopt.parse_form(form_body(installation="42"))
+        self.assertEqual((fields["repository"], fields["installation"]), ("octo-org/widget", "42"))
+        # An empty line, which an older issue of the form's shape could hold.
+        self.assertEqual(adopt.parse_form(form_body(repository="", installation="7"))["installation"], "7")
 
     def test_existing_and_no_sharing(self):
         fields = adopt.parse_form(form_body(kind=EXISTING, metrics=KEEP))
@@ -75,7 +91,12 @@ class GoodForms(unittest.TestCase):
         code, out, err = run(["parse"], stdin=form_body())
         self.assertEqual((code, err), (0, ""))
         self.assertEqual(out.splitlines(), [
-            "repository=octo-org/widget", "owner=octo-org", "name=widget", "mode=new", "metrics=on",
+            "repository=octo-org/widget", "owner=octo-org", "name=widget", "installation=", "mode=new", "metrics=on",
+        ])
+        code, out, err = run(["parse"], stdin=form_body(repository="_No response_", installation="5268543"))
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(out.splitlines(), [
+            "repository=", "owner=", "name=", "installation=5268543", "mode=new", "metrics=on",
         ])
 
 
@@ -112,6 +133,14 @@ class BadForms(unittest.TestCase):
             with self.subTest(repository=repository):
                 self.refused(form_body(repository=repository), quoted=repository)
 
+    def test_installations_that_are_not_the_number_github_fills_in(self):
+        for installation in ("12a", "1 2", "-1", "0x10", "1" * 21, "123\nmode=existing", "https://github.com/settings/installations/5"):
+            with self.subTest(installation=installation):
+                reason = self.refused(form_body(repository="_No response_", installation=installation), quoted=installation)
+                self.assertIn("installation", reason)
+        reason = self.refused(form_body(repository="_No response_", installation="_No response_"))
+        self.assertIn("installing the App", reason)
+
     def test_the_box_not_ticked(self):
         self.assertIn("not ticked", self.refused(form_body(box=" ")))
 
@@ -141,7 +170,7 @@ class BadForms(unittest.TestCase):
         code, out, _ = run(["parse"], stdin=form_body(repository="Octo/x.y_z-1"))
         self.assertEqual(code, 0)
         for line in out.splitlines():
-            self.assertRegex(line, re.compile(r"^[a-z]+=[A-Za-z0-9._/-]+$"))
+            self.assertRegex(line, re.compile(r"^[a-z]+=[A-Za-z0-9._/-]*$"))
 
 
 if __name__ == "__main__":
