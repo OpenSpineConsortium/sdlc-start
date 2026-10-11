@@ -108,7 +108,7 @@ class TheWorkflows(unittest.TestCase):
 
     def test_adopt_runs_on_opened_issues_with_the_label(self):
         text = (ROOT / ".github/workflows/adopt.yml").read_text(encoding="utf-8")
-        self.assertIn("  issues:\n    types: [opened]\n", text)
+        self.assertIn("  issues:\n    types: [opened, reopened]\n", text)
         self.assertIn("if: contains(github.event.issue.labels.*.name, 'adopt')", text)
         self.assertIn("permissions:\n  issues: write\n  contents: read\n", text)
         self.assertIn("group: adopt-${{ github.event.issue.number }}", text)
@@ -159,9 +159,10 @@ class TheWorkflows(unittest.TestCase):
         which the sweep reads and skips while open; a broken Setup App of
         the front door's is the owner's news whichever path the run took."""
         text = (ROOT / ".github/workflows/adopt-run.yml").read_text(encoding="utf-8")
-        told = text.index("name: Tell the repository when the sweep's adoption was refused")
-        self.assertIn("if: env.REFUSED == 'true' && env.SOURCE == 'installation' && steps.target-token.outcome == 'success'",
-                      text[told:])
+        told = text.index("name: Tell the repository when the sweep's adoption was refused or failed")
+        self.assertIn("if: always() && env.SOURCE == 'installation' && steps.target-token.outcome == 'success'"
+                      " && (env.REFUSED == 'true' || job.status == 'failure')", text[told:])
+        self.assertIn('echo "PUSHED=true" >> "$GITHUB_ENV"', text)
         self.assertIn('title="OpenSpine SDLC could not open its pull request"', text)
         self.assertIn('"$RUNNER_TEMP/refusal"', text)
         self.assertIn("creator=openspine-sdlc%5Bbot%5D", text)
@@ -171,7 +172,8 @@ class TheWorkflows(unittest.TestCase):
         self.assertNotIn("inputs.issue", text[owner:text.index("name: Say so when something failed")])
         refuse = (ROOT / "scripts/refuse.sh").read_text(encoding="utf-8")
         self.assertIn('if [ -n "${ISSUE:-}" ]; then', refuse)
-        self.assertIn('printf \'%s\\n\' "$message" > "$RUNNER_TEMP/refusal"', refuse)
+        self.assertIn('printf \'%s\\n\' "$kept" > "$RUNNER_TEMP/refusal"', refuse)
+        self.assertIn('${message%; this one is closed.}', refuse)
 
     def test_the_sweep_dispatches_ids_only_and_prints_counts(self):
         text = (ROOT / ".github/workflows/sweep.yml").read_text(encoding="utf-8")

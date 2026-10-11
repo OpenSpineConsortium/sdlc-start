@@ -250,6 +250,15 @@ class Sweep(unittest.TestCase):
     def test_an_archived_repository_is_skipped(self):
         self.assertEqual(self.skipped(None, repository(archived=True)), "1 archived")
 
+    def test_a_repository_without_issues_is_skipped_without_a_call(self):
+        """The refusal issue and mode new's setup issue need Issues; a
+        repository with them off, as a fork has, is left to the form."""
+        github = FakeGitHub(repositories=[repository(has_issues=False)])
+        code, written, out, err = self.run_sweep(github)
+        self.assertEqual((code, written, err), (0, "", ""))
+        self.assertEqual(out, "sweep: 1 installation, 1 repository, 0 candidates, 1 skipped (1 no issues)\n")
+        self.assertEqual([path for path in github.paths() if path.startswith("/repos/")], [])
+
     def test_a_repository_of_an_open_request_is_left_to_the_form_without_a_call(self):
         """The front door's open requests name their repositories; the
         form's run has those, whatever their case on the form."""

@@ -344,7 +344,9 @@ jobs:
           fi
           basic="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           echo "::add-mask::$basic"
-          if ! git -c http.extraheader="AUTHORIZATION: basic $basic" push --quiet origin HEAD:refs/heads/sdlc/adopt > /dev/null 2>> "$said"; then
+          if git -c http.extraheader="AUTHORIZATION: basic $basic" push --quiet origin HEAD:refs/heads/sdlc/adopt > /dev/null 2>> "$said"; then
+            echo "PUSHED=true" >> "$GITHUB_ENV"
+          else
             # Two requests for one repository at once: the first push made
             # the branch, and this one was turned away as not fast-forward.
             taken="$(gh api "repos/$TARGET/git/matching-refs/heads/sdlc/adopt" --jq '[.[] | select(.ref == "refs/heads/sdlc/adopt")] | length' 2>/dev/null || echo 0)"
@@ -359,18 +361,27 @@ jobs:
       # again every ten minutes: a refusal reached after the token was
       # minted (the push turned away by a ruleset of theirs, every file
       # there already) is told to the repository in one issue of the
-      # App's, which the sweep reads and skips while it is open. A push
-      # another run won is no refusal of theirs and gets no issue.
-      - name: Tell the repository when the sweep's adoption was refused
-        if: env.REFUSED == 'true' && env.SOURCE == 'installation' && steps.target-token.outcome == 'success'
+      # App's, which the sweep reads and skips while it is open; a failure
+      # after the push is told the same way, since the branch left behind
+      # would read as offered to every later sweep. A push another run won
+      # is no refusal of theirs and gets no issue.
+      - name: Tell the repository when the sweep's adoption was refused or failed
+        if: always() && env.SOURCE == 'installation' && steps.target-token.outcome == 'success' && (env.REFUSED == 'true' || job.status == 'failure')
         env:
           GH_TOKEN: ${{ steps.target-token.outputs.token }}
           TARGET: ${{ env.TARGET }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           taken="$(gh api "repos/$TARGET/git/matching-refs/heads/sdlc/adopt" --jq '[.[] | select(.ref == "refs/heads/sdlc/adopt")] | length' 2>/dev/null || echo 0)"
-          if [ "$taken" != 0 ]; then
+          if [ "$taken" != 0 ] && [ "${PUSHED:-}" != true ]; then
             echo "another run holds the branch; nothing to tell"
             exit 0
+          fi
+          # A failure after this run's own push leaves a branch with no
+          # pull request, which the sweep would read as offered for good:
+          # the issue says to delete it.
+          if [ ! -f "$RUNNER_TEMP/refusal" ]; then
+            printf '%s\n' "something went wrong in the run that tried, which stopped; the front door's owner can read the run at $RUN. Delete the branch sdlc/adopt here if the run pushed it before it stopped, then close this issue and the front door tries again." > "$RUNNER_TEMP/refusal"
           fi
           title="OpenSpine SDLC could not open its pull request"
           # The same question scripts/sweep.py asks, the same way: the

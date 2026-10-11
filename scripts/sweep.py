@@ -32,6 +32,10 @@ A repository is left out, each reason counted, when
   own         its owner is the organization's own (--own): the template,
               this front door and the rest take no adoption of themselves;
   archived    GitHub refuses every push to it;
+  no issues   its Issues are off (a fork's are, by default): the run on
+              this path tells the repository in an issue when it could not
+              open the pull request, and mode new opens one, so a
+              repository that takes none is left to the form;
   pending     it is named, OWNER/NAME in any case, on a line of the file
               --pending or under the heading "### Repository" of an issue
               in the file --requests (the open requests of the form, as
@@ -134,6 +138,7 @@ FRESH = "fresh"
 DEFERRED = "deferred"
 OWN_REASON = "own"
 ARCHIVED = "archived"
+NO_ISSUES = "no issues"
 PENDING = "pending"
 NO_COMMIT = "no commit"
 OFFERED = "offered"
@@ -494,6 +499,8 @@ def why_skipped(github, repository, settings, bot):
         return OWN_REASON
     if repository.get("archived"):
         return ARCHIVED
+    if not repository.get("has_issues", True):
+        return NO_ISSUES
     if repository["full_name"].lower() in settings.pending:
         return PENDING
     if not has_commit(github, repository):

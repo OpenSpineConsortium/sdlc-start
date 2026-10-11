@@ -29,8 +29,10 @@ name: Adopt
 # answer. A refusal (scripts/refuse.sh) comments, closes the issue as not
 # planned and ends the run green; anything else that fails comments with
 # the run's link and leaves the issue open for the owner. The trigger is
-# opened alone: a refused request is opened again with the form, never
-# edited, and one run handles one issue at a time. Until the owner sets
+# opened and reopened, never edited: a refused request is opened again
+# with the form, and one reopened is answered again, so a closed refusal
+# cannot be held open to keep its repository on the sweep's pending list;
+# one run handles one issue at a time. Until the owner sets
 # the variable SDLC_APP_ID and the secret SDLC_APP_PRIVATE_KEY (README.md,
 # For the owner), every request is answered that the front door is not
 # set up yet, and stays open so its run can be started again once it is;
@@ -39,7 +41,7 @@ name: Adopt
 
 on:
   issues:
-    types: [opened]
+    types: [opened, reopened]
 
 permissions:
   issues: write

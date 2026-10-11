@@ -35,6 +35,10 @@ if [ -n "${ISSUE:-}" ]; then
 fi
 echo "REFUSED=true" >> "$GITHUB_ENV"
 if [ -n "${RUNNER_TEMP:-}" ]; then
-  printf '%s\n' "$message" > "$RUNNER_TEMP/refusal"
+  # The sentence about the front door's issue is for the front door's
+  # issue; the repository's own issue, which quotes the file, has none.
+  kept="${message%; this one is closed.}"
+  kept="${kept%; this issue is closed.}"
+  printf '%s\n' "$kept" > "$RUNNER_TEMP/refusal"
 fi
 echo "refused: $message"

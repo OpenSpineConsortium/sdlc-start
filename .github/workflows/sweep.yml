@@ -17,7 +17,8 @@ name: Sweep
 # who installs and then fills in the form keeps their choices, and a
 # repository named on an open request here is left to that request. An
 # installation that has not accepted every permission the pull request
-# needs is passed over, as is a repository whose adoption was offered
+# needs is passed over, as is a repository whose Issues are off (the
+# run tells it in an issue when it fails), one whose adoption was offered
 # (the branch sdlc/adopt), declined (a closed pull request from it),
 # refused (the App's issue "OpenSpine SDLC could not open its pull
 # request", open), or opted out (.github/sdlc-adopt saying off); and the
