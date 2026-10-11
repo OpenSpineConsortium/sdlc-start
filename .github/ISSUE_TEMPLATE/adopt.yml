@@ -1,67 +1,31 @@
 name: Adopt the SDLC template
-description: Ask for a pull request that brings the OpenSpine SDLC template, or only its claim protocol, into your repository.
-title: "Adopt: "
+description: One pull request with the OpenSpine SDLC template, or its claim protocol, into your repository.
+title: "Adopt"
 labels: ["adopt"]
 body:
   - type: markdown
     attributes:
       value: |
-        Submitting this form starts a workflow here that opens one pull request in your repository, as the OpenSpine SDLC App, within about two minutes, and then closes this issue. You reach this form two ways. From installing the App (https://github.com/apps/openspine-sdlc/installations/new), which sends you here with the Installation field below filled in: then press "Create" and nothing else, since the kind is read from the repository and aggregates are shared unless you choose otherwise below. Or on your own: then name the repository, tick the box, and leave Installation empty. The request must come from an administrator of the repository. The run makes the board's labels in your repository at once, pushes the branch sdlc/adopt, applies the settings below where you installed the Setup App, and, for a new repository, opens the issue "Set up this project" there; everything else lands only when you merge that pull request, and closing it instead leaves those for you to delete or undo. Installing the App without this form is a request too: about half an hour later a sweep opens the pull request, reading the kind from the repository and sharing aggregates by default, unless the repository says `off` in `.github/sdlc-adopt`.
-
-        - **New repository**: the whole template, as "Use this template" would make it, with your names filled in. A file your repository has already, typically the README GitHub made, is replaced, and the pull request lists it.
-        - **Existing repository**: the claim protocol only (the board's workflows, the protocol's code and text, the claim folder, a section in CLAUDE.md, the sdlc plugin in .claude/settings.json). No file of yours is overwritten.
-
-        LICENSE is never copied: licensing your project is your decision. The files you receive are offered under the MIT License, the LICENSE of this repository.
-
-        **Settings, if you want them applied.** To have the same run set up the GitHub side of your repository (the default branch's ruleset, delete-on-merge and auto-merge, secret scanning with push protection), install the OpenSpine SDLC Setup App on it too, before submitting: https://github.com/apps/openspine-sdlc-setup/installations/new, choosing "Only select repositories" and that one repository, never "All repositories". It holds Administration, which those settings need and nothing else here does, and this one run is its only use: uninstall it once the pull request is open. Installing it is the choice; there is no box for it. Without it, the pull request says how to apply the settings by hand.
-
-        **Metrics.** Anonymous aggregates are shared by default: counts, durations and rates of the protocol at work, and failure-type frequencies when a maintainer runs the judge themselves. Never code, text, titles or names; your repository appears in the dataset only as a salted hash. Turn it off at any time by writing `off` in `.github/sdlc-metrics` in your repository, or choose "Do not share" below.
-
-        **This issue is public.** A repository name you type below is visible on it to anyone, and so is the workflow run that handles it. If a private repository's name says more than you want to show, keep the title a throwaway description, and come here from the install, which fills in the installation's number instead of a name: the run then resolves the name for itself and masks it, and the answer here says "your repository". The issue is closed once it has been handled.
-  - type: input
-    id: repository
-    attributes:
-      label: Repository
-      description: Your repository as OWNER/NAME, such as octo-org/my-project. It must have at least one commit, and you must be one of its administrators. Leave it empty when you came here from installing the App on one repository, which filled in the Installation below; name it when that installation reaches several.
-      placeholder: OWNER/NAME
-    validations:
-      required: false
+        Installed the App and landed here? Press Create: the pull request is open in that repository in about two minutes, with the whole template for an empty repository and the protocol alone for one with files. Came here on your own? Install the App first (https://github.com/apps/openspine-sdlc/installations/new) or name the repository below. With the Setup App on the repository too (https://github.com/apps/openspine-sdlc-setup/installations/new, "Only select repositories"), the run also applies its settings; that App holds Administration for this one run, and you uninstall it afterwards. This issue is public: a name typed here shows, an installation's number says nothing.
   - type: input
     id: installation_id
     attributes:
       label: Installation
-      description: Filled in by GitHub when you arrive from installing the App. Leave it as it is, or empty when you name the repository above.
-      placeholder: Filled in by GitHub
+      description: Filled in by GitHub after the install. Leave it.
     validations:
       required: false
-  - type: dropdown
-    id: kind
+  - type: input
+    id: repository
     attributes:
-      label: Kind
-      description: What the pull request brings. Left to the run, a default branch holding nothing but what GitHub makes when it initializes a repository is a new one and gets the whole template; anything else is an existing one and gets the protocol alone, which overwrites nothing.
-      options:
-        - "Read it from the repository: the whole template for a new one, the protocol alone for one with files of its own"
-        - "New repository: the whole template"
-        - "Existing repository: the protocol only"
-      default: 0
+      label: Repository
+      description: OWNER/NAME, only when you came here without installing. With an installation, the run takes its one repository with no adoption yet, or the newest created among several.
+      placeholder: OWNER/NAME
     validations:
-      required: true
-  - type: dropdown
-    id: metrics
-    attributes:
-      label: Metrics
-      description: Whether your repository shares anonymous aggregates; you can change it later in .github/sdlc-metrics.
-      options:
-        - "Share anonymous aggregates (default)"
-        - "Do not share"
-      default: 0
-    validations:
-      required: true
+      required: false
   - type: checkboxes
-    id: app
+    id: options
     attributes:
-      label: The App
-      description: Install it on the repository first, at https://github.com/apps/openspine-sdlc/installations/new. Tick the box when you name the repository above; an Installation filled in says it already.
+      label: Options
       options:
-        - label: The OpenSpine SDLC App is installed on this repository
-          required: false
+        - label: Do not share anonymous aggregates (counts, durations and rates of the protocol at work, never code, text or names; the switch is .github/sdlc-metrics)
+        - label: The protocol only, even into an empty repository

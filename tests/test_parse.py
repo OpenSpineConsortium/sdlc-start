@@ -8,21 +8,16 @@ import unittest
 
 from trees import adopt, run
 
-READ = "Read it from the repository: the whole template for a new one, the protocol alone for one with files of its own"
-NEW = "New repository: the whole template"
-EXISTING = "Existing repository: the protocol only"
-SHARE = "Share anonymous aggregates (default)"
-KEEP = "Do not share"
+OPT_OUT = adopt.OPT_OUT_OF_SHARING
+PROTOCOL_ONLY = adopt.PROTOCOL_ONLY
 
 
-def form_body(repository="octo-org/widget", kind=NEW, metrics=SHARE, box="X", newline="\n",
-              installation="_No response_"):
+def form_body(repository="octo-org/widget", installation="_No response_", opt_out=" ", protocol_only=" ",
+              newline="\n"):
     lines = [
-        "### Repository", "", repository, "",
         "### Installation", "", installation, "",
-        "### Kind", "", kind, "",
-        "### Metrics", "", metrics, "",
-        "### The App", "", f"- [{box}] The OpenSpine SDLC App is installed on this repository", "",
+        "### Repository", "", repository, "",
+        "### Options", "", f"- [{opt_out}] {OPT_OUT}", f"- [{protocol_only}] {PROTOCOL_ONLY}", "",
     ]
     return newline.join(lines)
 
@@ -60,33 +55,30 @@ class GoodForms(unittest.TestCase):
     def test_the_form_as_github_writes_it(self):
         self.assertEqual(adopt.parse_form(form_body()), {
             "repository": "octo-org/widget", "owner": "octo-org", "name": "widget", "installation": "",
-            "mode": "new", "metrics": "on",
+            "mode": "read", "metrics": "on",
         })
 
     def test_the_form_as_the_install_fills_it_in(self):
         """From the install, GitHub fills in the installation and the person
-        leaves the repository empty, which GitHub writes as _No response_;
-        the workflow resolves the name."""
+        presses Create: the repository stays empty, which GitHub writes as
+        _No response_, the kind is left to the run and sharing is on."""
         fields = adopt.parse_form(form_body(repository="_No response_", installation="5268543"))
         self.assertEqual(fields, {"repository": "", "owner": "", "name": "", "installation": "5268543",
-                                  "mode": "new", "metrics": "on"})
-        # The one-button form: the kind left to the run, the box not ticked,
-        # which the installation stands in for.
-        fields = adopt.parse_form(form_body(repository="_No response_", installation="5268543", kind=READ, box=" "))
-        self.assertEqual((fields["mode"], fields["installation"]), ("read", "5268543"))
-        self.assertEqual(adopt.parse_form(form_body(kind=READ))["mode"], "read")
+                                  "mode": "read", "metrics": "on"})
         # Both given: the name decides, and the installation comes along.
         fields = adopt.parse_form(form_body(installation="42"))
         self.assertEqual((fields["repository"], fields["installation"]), ("octo-org/widget", "42"))
         # An empty line, which an older issue of the form's shape could hold.
         self.assertEqual(adopt.parse_form(form_body(repository="", installation="7"))["installation"], "7")
 
-    def test_existing_and_no_sharing(self):
-        fields = adopt.parse_form(form_body(kind=EXISTING, metrics=KEEP))
+    def test_the_two_boxes_opt_out(self):
+        fields = adopt.parse_form(form_body(opt_out="x", protocol_only="X"))
         self.assertEqual((fields["mode"], fields["metrics"]), ("existing", "off"))
+        self.assertEqual(adopt.parse_form(form_body(opt_out="X"))["metrics"], "off")
+        self.assertEqual(adopt.parse_form(form_body(protocol_only="x"))["mode"], "existing")
 
-    def test_carriage_returns_and_a_lowercase_tick(self):
-        self.assertEqual(adopt.parse_form(form_body(box="x", newline="\r\n"))["repository"], "octo-org/widget")
+    def test_carriage_returns(self):
+        self.assertEqual(adopt.parse_form(form_body(newline="\r\n", opt_out="x"))["metrics"], "off")
 
     def test_names_github_allows(self):
         for repository in ("a/b", "Octo-Org/my.project_2", "o" * 39 + "/" + "n" * 100, "octo/.github"):
@@ -97,12 +89,12 @@ class GoodForms(unittest.TestCase):
         code, out, err = run(["parse"], stdin=form_body())
         self.assertEqual((code, err), (0, ""))
         self.assertEqual(out.splitlines(), [
-            "repository=octo-org/widget", "owner=octo-org", "name=widget", "installation=", "mode=new", "metrics=on",
+            "repository=octo-org/widget", "owner=octo-org", "name=widget", "installation=", "mode=read", "metrics=on",
         ])
         code, out, err = run(["parse"], stdin=form_body(repository="_No response_", installation="5268543"))
         self.assertEqual((code, err), (0, ""))
         self.assertEqual(out.splitlines(), [
-            "repository=", "owner=", "name=", "installation=5268543", "mode=new", "metrics=on",
+            "repository=", "owner=", "name=", "installation=5268543", "mode=read", "metrics=on",
         ])
 
 
@@ -147,25 +139,15 @@ class BadForms(unittest.TestCase):
         reason = self.refused(form_body(repository="_No response_", installation="_No response_"))
         self.assertIn("installing the App", reason)
 
-    def test_the_box_not_ticked(self):
-        """Named without an installation, the box is the person's word that
-        the App is installed; it stays required there."""
-        self.assertIn("not ticked", self.refused(form_body(box=" ")))
-        self.assertIn("not ticked", self.refused(form_body(box=" ", kind=READ)))
-
-    def test_another_box_ticked(self):
-        body = form_body().replace("The OpenSpine SDLC App is installed", "Something else is installed")
-        self.refused(body)
-
-    def test_a_kind_or_a_choice_the_form_does_not_offer(self):
-        self.refused(form_body(kind="New"))
-        self.refused(form_body(kind=NEW + "\nmode=existing"), quoted="mode=existing")
-        self.refused(form_body(metrics="on"))
+    def test_a_box_the_form_does_not_offer(self):
+        self.refused(form_body().replace(PROTOCOL_ONLY, "Something else"))
+        self.refused(form_body() + "- [x] mode=new\n", quoted="mode=new")
+        self.refused(form_body().replace(f"- [ ] {OPT_OUT}", "share"))
 
     def test_a_missing_an_extra_or_a_repeated_field(self):
-        self.refused(form_body().replace("### Metrics", "### Sharing"))
+        self.refused(form_body().replace("### Options", "### Choices"))
         self.refused(form_body() + "\n### Notes\n\nplease\n")
-        self.refused(form_body() + "\n### Kind\n\n" + EXISTING + "\n")
+        self.refused(form_body() + "\n### Repository\n\nocto/other\n")
         self.refused("")
         self.refused("Please adopt octo-org/widget.")
 

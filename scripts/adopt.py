@@ -59,26 +59,20 @@ MANIFEST_SCHEMA = "sdlc-adopt/1"
 # The form as .github/ISSUE_TEMPLATE/adopt.yml words it: each field's
 # label is a "### " heading of the issue's body, followed by its value.
 # tests/test_form.py holds the two files to the same words.
-FIELD_REPOSITORY = "Repository"
 FIELD_INSTALLATION = "Installation"
-FIELD_KIND = "Kind"
-FIELD_METRICS = "Metrics"
-FIELD_APP = "The App"
-FIELDS = (FIELD_REPOSITORY, FIELD_INSTALLATION, FIELD_KIND, FIELD_METRICS, FIELD_APP)
+FIELD_REPOSITORY = "Repository"
+FIELD_OPTIONS = "Options"
+FIELDS = (FIELD_INSTALLATION, FIELD_REPOSITORY, FIELD_OPTIONS)
 # What GitHub writes under an optional field left empty.
 NO_RESPONSE = "_No response_"
-KINDS = {
-    "Read it from the repository: the whole template for a new one, the protocol alone for one with files of its own": "read",
-    "New repository: the whole template": "new",
-    "Existing repository: the protocol only": "existing",
-}
-SHARING = {
-    "Share anonymous aggregates (default)": "on",
-    "Do not share": "off",
-}
-APP_INSTALLED = "The OpenSpine SDLC App is installed on this repository"
+# The two boxes, both opt-outs: the defaults are sharing on and the kind
+# read from the repository.
+OPT_OUT_OF_SHARING = ("Do not share anonymous aggregates (counts, durations and rates of the protocol at work, never"
+                      " code, text or names; the switch is .github/sdlc-metrics)")
+PROTOCOL_ONLY = "The protocol only, even into an empty repository"
+OPTIONS = (OPT_OUT_OF_SHARING, PROTOCOL_ONLY)
 HEADING = re.compile(r"### (.+)")
-TICKED = re.compile(r"- \[[xX]\] (.+)")
+BOX = re.compile(r"- \[([ xX])\] (.+)")
 
 REPOSITORY = re.compile(r"[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}")
 INSTALLATION = re.compile(r"[0-9]{1,20}")
@@ -215,23 +209,28 @@ def given(value):
     return "" if value == NO_RESPONSE else value
 
 
-def choose(value, options, field):
-    """The option's short name, or FormError."""
-    if value not in options:
-        raise FormError(f"the field {field} holds none of the form's options")
-    return options[value]
-
-
-def is_ticked(value):
-    found = TICKED.fullmatch(value)
-    return bool(found) and found.group(1).strip() == APP_INSTALLED
+def ticked_options(value):
+    """The boxes ticked under Options, as the form's labels; a line that is
+    not one of the form's boxes is a FormError, since GitHub writes each
+    box, ticked or not, and nothing else."""
+    ticked = set()
+    for line in value.split("\n"):
+        if not line.strip():
+            continue
+        found = BOX.fullmatch(line.strip())
+        if not found or found.group(2).strip() not in OPTIONS:
+            raise FormError("the field Options holds something the form does not offer")
+        if found.group(1) != " ":
+            ticked.add(found.group(2).strip())
+    return ticked
 
 
 def parse_form(body):
     """The form's fields: repository, owner and name (empty when only the
     installation was given), installation (empty when the repository was
-    named without it), mode (read when the form left the kind to the run,
-    which reads it from the tree) and metrics."""
+    named without it), mode (existing when the protocol-only box is
+    ticked, else read, which the run reads from the tree) and metrics (off
+    when the opt-out box is ticked)."""
     sections = form_sections(body)
     if set(sections) != set(FIELDS):
         raise FormError("the issue is not the adoption form's")
@@ -241,11 +240,9 @@ def parse_form(body):
                         " App, which fills in the installation")
     installation = parse_installation(installed) if installed else ""
     owner, name = parse_repository(named) if named else ("", "")
-    mode = choose(sections[FIELD_KIND], KINDS, FIELD_KIND)
-    metrics = choose(sections[FIELD_METRICS], SHARING, FIELD_METRICS)
-    # The installation GitHub filled in is the proof the box asks for.
-    if not installed and not is_ticked(sections[FIELD_APP]):
-        raise FormError("the box that says the App is installed on the repository is not ticked")
+    ticked = ticked_options(sections[FIELD_OPTIONS])
+    mode = "existing" if PROTOCOL_ONLY in ticked else "read"
+    metrics = "off" if OPT_OUT_OF_SHARING in ticked else "on"
     repository = f"{owner}/{name}" if named else ""
     return {"repository": repository, "owner": owner, "name": name, "installation": installation,
             "mode": mode, "metrics": metrics}
