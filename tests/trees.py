@@ -190,15 +190,18 @@ def run(argv, stdin=None):
     return code, out.getvalue(), err.getvalue()
 
 
-def apply(template, target, manifest, mode="new", metrics="on", owner_type="User", repo=REPO, protocol_spec=None):
+def apply(template, target, manifest, mode="new", metrics="on", owner_type="User", repo=REPO, protocol_spec=None,
+          source=None, creator=CREATOR):
     """Run apply; (exit code, the manifest or None, stderr)."""
     argv = [
         "apply", "--template", str(template), "--target", str(target), "--repo", repo,
-        "--creator", CREATOR, "--owner-type", owner_type, "--default-branch", "main",
+        "--creator", creator, "--owner-type", owner_type, "--default-branch", "main",
         "--mode", mode, "--metrics", metrics, "--manifest", str(manifest),
     ]
     if protocol_spec is not None:
         argv += ["--protocol-spec", str(protocol_spec)]
+    if source is not None:
+        argv += ["--source", source]
     code, _, err = run(argv)
     written = json.loads(Path(manifest).read_text()) if code == 0 else None
     return code, written, err

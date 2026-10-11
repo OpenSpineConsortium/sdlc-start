@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""Adopt the OpenSpine SDLC template into a repository, from the form.
+"""Adopt the OpenSpine SDLC template into a repository, from the form or
+from the App's installation.
 
-.github/workflows/adopt.yml runs one subcommand per step:
+.github/workflows/adopt.yml runs parse; .github/workflows/adopt-run.yml,
+which it calls and which the sweep starts by dispatch, runs name, apply,
+body and labels, one subcommand per step:
 
   parse  reads the issue the adoption form made and prints its fields as
          KEY=value lines for $GITHUB_OUTPUT. Anyone can open an issue, so
@@ -28,6 +31,8 @@
          the repository's settings the Setup App applied in the same run,
          or why none was, and the next steps follow from that.
   labels prints the board's labels, read from the template's own list.
+  name   checks a repository's name the way parse does, for the sweep's
+         path, which brings no form, and prints it as KEY=value lines.
 
 LICENSE is never copied: licensing the person's project is their
 decision. A link in the template is never followed and a path of the
@@ -134,6 +139,9 @@ MARKETPLACE = {
 PLUGIN = "sdlc@sdlc-marketplace"
 
 FRONT_DOOR = "https://github.com/OpenSpineConsortium/sdlc-start"
+# How a request arrived: the form's issue, or the App's installation, which
+# the sweep found (.github/workflows/sweep.yml).
+SOURCES = ("issue", "installation")
 
 # The Setup App: a second App, holding Administration, which the person
 # installs on the repository for the one run that applies the template's
@@ -209,6 +217,19 @@ def parse_form(body):
     if not is_ticked(sections[FIELD_APP]):
         raise FormError("the box that says the App is installed on the repository is not ticked")
     return {"repository": f"{owner}/{name}", "owner": owner, "name": name, "mode": mode, "metrics": metrics}
+
+
+def command_name(options):
+    """The sweep's path: the repository's name checked as the form's would
+    be, and printed in parse's shape for the workflow's environment."""
+    try:
+        owner, name = parse_repository(options.repository)
+    except FormError as problem:
+        print(problem, file=sys.stderr)
+        return 1
+    for key, value in (("repository", f"{owner}/{name}"), ("owner", owner), ("name", name)):
+        print(f"{key}={value}")
+    return 0
 
 
 def command_parse(options):
@@ -720,6 +741,7 @@ def new_manifest(options, links, protocol_text, plan):
         "default_branch": options.default_branch,
         "owner_type": options.owner_type,
         "creator": options.creator,
+        "source": options.source,
         "metrics_workflow": False,  # known once the files have landed
         "metrics_in_template": all(rel in plan for rel in METRICS_FILES),
         "protocol_text": protocol_text,
@@ -791,10 +813,19 @@ def title(manifest):
     return "Take up the OpenSpine SDLC claim protocol"
 
 
+def source_of(manifest):
+    return manifest.get("source", "issue")
+
+
 def opening(manifest):
     repo = manifest["repository"]
-    asked = (f"The OpenSpine SDLC App opened it because an administrator of {repo} asked for it on the adoption"
-             f" form ({FRONT_DOOR}). Nothing changes until you merge it.")
+    if source_of(manifest) == "installation":
+        asked = (f"The OpenSpine SDLC App opened it because an administrator of {repo} installed the App on it, or"
+                 f" on all of its owner's repositories, which the front door ({FRONT_DOOR}) takes as the request."
+                 " Nothing changes until you merge it.")
+    else:
+        asked = (f"The OpenSpine SDLC App opened it because an administrator of {repo} asked for it on the adoption"
+                 f" form ({FRONT_DOOR}). Nothing changes until you merge it.")
     if manifest["mode"] == "new":
         return (f"This pull request brings the whole OpenSpine SDLC template into {repo}, as \"Use this template\""
                 f" would have made it, with this repository's names filled in. {asked}")
@@ -905,11 +936,45 @@ def notes_section(manifest):
     if ignored:
         parts += ignored_notes(ignored)
     if manifest["mode"] == "new" and manifest["owner_type"] == "Organization":
-        parts += [f"`.github/CODEOWNERS` names `{manifest['creator']}`, who asked for this pull request, because GitHub"
-                  " asks a user or a team for review and never an organization; change it by pull request when"
-                  " someone else should review (docs/setup/github.md, section 7).", ""]
+        parts += [codeowners_note(manifest), ""]
+    if source_of(manifest) == "installation":
+        parts += [kind_note(manifest), ""]
     parts += [f"{note}\n" for note in manifest["notes"]]
     return (["## Notes", "", *parts]) if parts else []
+
+
+def codeowners_note(manifest):
+    """Who `.github/CODEOWNERS` names in an organization's new copy, and
+    why: the form's author; on the sweep's path the first administrator
+    the run found, or the organization itself when it found none, which
+    GitHub cannot ask for review."""
+    creator = manifest["creator"]
+    owner = manifest["repository"].split("/")[0]
+    because = ("because GitHub asks a user or a team for review and never an organization; change it by pull"
+               " request when someone else should review (docs/setup/github.md, section 7).")
+    if source_of(manifest) != "installation":
+        who = f"`{creator}`, who asked for this pull request,"
+    elif creator == owner:
+        who = (f"`{creator}`, the organization itself, since the run found no administrator among the repository's"
+               " direct collaborators; GitHub marks that line as one it cannot resolve, so name a person or a team,")
+    else:
+        who = f"`{creator}`, the first administrator the run found among the repository's direct collaborators,"
+    return f"`.github/CODEOWNERS` names {who} {because}"
+
+
+def kind_note(manifest):
+    """The sweep chose the kind from the tree, since no form said it; the
+    other kind is one request away."""
+    if manifest["mode"] == "new":
+        read = ("as a new repository, since its default branch held nothing but what GitHub makes when it"
+                " initializes one (a README, a LICENSE or COPYING, a .gitignore or .gitattributes)")
+        other = "the protocol alone"
+    else:
+        read = "as an existing repository, since its default branch holds files of its own"
+        other = "the whole template"
+    return (f"No form said which kind to bring: the run read this repository {read}. For {other} instead, close this"
+            " pull request, which is the end of the front door's own offers for this repository, then delete its"
+            f" branch `sdlc/adopt` and open the form at {FRONT_DOOR} with the other kind.")
 
 
 def sharing_section(manifest):
@@ -1263,6 +1328,8 @@ def parse_args(argv):
     applying.add_argument("--default-branch", required=True, help="the target's default branch")
     applying.add_argument("--mode", required=True, choices=("new", "existing"))
     applying.add_argument("--metrics", required=True, choices=("on", "off"))
+    applying.add_argument("--source", default="issue", choices=SOURCES,
+                          help="how the request arrived: the form's issue (default) or the App's installation")
     applying.add_argument("--manifest", required=True, help="where to write the manifest, outside the target")
     applying.add_argument("--protocol-spec", help="sdlc-protocol's spec/PROTOCOL.md, which mode existing writes as"
                           " docs/agents/PROTOCOL.md; without it, the template's own page")
@@ -1275,10 +1342,14 @@ def parse_args(argv):
     labels = commands.add_parser("labels", help="the board's labels as name<TAB>colour<TAB>description")
     labels.add_argument("--template", required=True)
     labels.add_argument("--mode", required=True, choices=("new", "existing"))
+
+    naming = commands.add_parser("name", help="check a repository's name as parse would and print it")
+    naming.add_argument("repository", help="OWNER/NAME")
     return parser.parse_args(argv)
 
 
-COMMANDS = {"parse": command_parse, "apply": command_apply, "body": command_body, "labels": command_labels}
+COMMANDS = {"parse": command_parse, "apply": command_apply, "body": command_body, "labels": command_labels,
+            "name": command_name}
 
 
 def main(argv=None):
