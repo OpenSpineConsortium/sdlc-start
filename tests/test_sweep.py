@@ -39,8 +39,8 @@ PERMISSIONS = {"contents": "write", "issues": "write", "pull_requests": "write",
 NOW = 1_728_000_000
 # Long before NOW: no installation is fresh unless a test dates it so.
 INSTALLED = "2024-01-01T00:00:00Z"
-SLUG = "symphony-dev"
-BOT = "symphony-dev%5Bbot%5D"
+SLUG = "symphonyboard"
+BOT = "symphonyboard%5Bbot%5D"
 
 
 def moment(seconds_before_now):
