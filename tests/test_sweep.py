@@ -272,14 +272,10 @@ class Sweep(unittest.TestCase):
         # A check that fails is the caller's to answer, as a refusal.
         with self.assertRaises(sweep.GitHubError):
             sweep.unadopted(sweep.GitHub("token", FakeGitHub(raising="GitHub could not be reached")), [free])
-        # Among several with no adoption, the newest created is the one meant;
-        # none means nothing to adopt.
-        older = dict(repository("mona/older", 1, created_at="2026-01-01T00:00:00Z"), by_id=True)
-        newer = dict(repository("mona/newer", 2, created_at="2026-10-11T04:00:00Z"), by_id=True)
-        undated = dict(repository("mona/undated", 3), by_id=True)
-        self.assertEqual(sweep.chosen(sweep.GitHub("token", FakeGitHub()), [undated, older, newer])["id"], 2)
-        self.assertEqual(sweep.chosen(sweep.GitHub("token", FakeGitHub()), [older])["id"], 1)
-        self.assertIsNone(sweep.chosen(sweep.GitHub("token", github), [offered, adopted, empty]))
+        # The newest first, for the caller that sorts by creation.
+        older = repository("mona/older", 1, created_at="2026-01-01T00:00:00Z")
+        newer = repository("mona/newer", 2, created_at="2026-10-11T04:00:00Z")
+        self.assertEqual([r["id"] for r in sorted([older, newer, repository("mona/undated", 3)], key=sweep.created_at, reverse=True)], [2, 1, 3])
 
     def test_a_repository_without_issues_is_skipped_without_a_call(self):
         """The refusal issue and mode new's setup issue need Issues; a

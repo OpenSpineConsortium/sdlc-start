@@ -29,14 +29,14 @@ name: Adopt
 # or key here, which is the owner's to fix: the issue stays open and the
 # run ends red) from an account that did not install it. A form that
 # carries the installation's number and no name is resolved with the
-# App's own JWT: the installation's token lists the repositories it
-# reaches, the one among them with no adoption yet (by the sweep's rules,
-# asked by id), or the newest created among several, is the request's
-# once the author is read as its administrator, and the adoption run gets
-# the ids. None, an installation that is not this App's and an author who
-# is not an administrator get one answer at one moment, and the name, which no
-# issue typed, is never read in this job, so nothing here can be masked
-# and nothing printed can differ: a guessed number learns nothing. GitHub's own
+# App's own JWT, or the Setup App's when the number is that App's, since
+# both send the person to the form (scripts/resolve.py): the installation's
+# token lists the repositories it reaches, and every one with no adoption
+# yet (by the sweep's rules, asked by id) that the author administers is
+# adopted, one run each, with one answer for them all. None, a number
+# neither App knows and an author who administers none get one answer at
+# one moment, and no name is read in this job, so nothing here can be
+# masked and nothing printed can differ: a guessed number learns nothing. GitHub's own
 # token, which may write only this repository's issues, posts every
 # answer. A refusal (scripts/refuse.sh) comments, closes the issue as not
 # planned and ends the run green; anything else that fails comments with
@@ -73,10 +73,12 @@ jobs:
     outputs:
       refused: ${{ steps.verdict.outputs.refused }}
       repository: ${{ steps.form.outputs.repository }}
-      installation: ${{ steps.form.outputs.installation }}
-      repository_id: ${{ steps.resolve.outputs.repository_id }}
+      installation_id: ${{ steps.resolve.outputs.installation_id }}
+      repository_ids: ${{ steps.resolve.outputs.repository_ids }}
+      count: ${{ steps.resolve.outputs.count }}
       mode: ${{ steps.form.outputs.mode }}
       metrics: ${{ steps.form.outputs.metrics }}
+      merge: ${{ steps.form.outputs.merge }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -110,78 +112,54 @@ jobs:
           fi
 
       # The form came from the install: the installation's number and no
-      # name. Its token, reading contents and nothing more, says which one
-      # repository it reaches with no adoption yet and whether the author
-      # administers it, all by id; nothing of the repository is printed,
-      # and every refusal is the same one.
-      - name: Resolve the installation's one repository
+      # name. scripts/resolve.py turns it into the repositories to adopt,
+      # all by id; nothing of a repository is printed, and every refusal
+      # is the same one.
+      - name: Resolve the installation to the repositories to adopt
         id: resolve
         if: env.REFUSED != 'true' && steps.form.outputs.repository == ''
         env:
           APP_ID: ${{ vars.SDLC_APP_ID }}
           APP_PRIVATE_KEY: ${{ secrets.SDLC_APP_PRIVATE_KEY }}
+          SETUP_ID: ${{ vars.SDLC_SETUP_APP_ID }}
+          SETUP_KEY: ${{ secrets.SDLC_SETUP_APP_PRIVATE_KEY }}
           INSTALLATION: ${{ steps.form.outputs.installation }}
           AUTHOR: ${{ github.event.issue.user.login }}
           ISSUE_TOKEN: ${{ github.token }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          # Every refusal is one answer, in words and in time: the name is
-          # never learned here (the API is asked by id), so no mask exists
-          # in this job and nothing printed can differ; and each refusal
-          # waits for the same moment, so the step's length says nothing.
-          refusal="Nothing was done: the installation this form carried is not one of the OpenSpine SDLC App's, or it reaches no repository with no adoption yet, or your account is not an administrator of the one it reaches. Open a new request with the form naming the repository as OWNER/NAME, as an administrator of it; this one is closed."
-          deadline=$((SECONDS + 20))
+          # Every refusal is one answer, in words and in time: the names are
+          # never learned here (scripts/resolve.py asks the API by id), so
+          # no mask exists in this job and nothing printed can differ; and
+          # each refusal waits for the same moment, so the step's length
+          # says nothing.
+          refusal="Nothing was done: the installation this form carried is not the OpenSpine SDLC App's or its Setup App's, or it reaches no repository with no adoption yet, or none of those that your account administers. Open a new request with the form naming the repository as OWNER/NAME, as an administrator of it; this one is closed."
+          deadline=$((SECONDS + 25))
           refuse_alike() {
             sleep $((deadline > SECONDS ? deadline - SECONDS : 0))
             bash start/scripts/refuse.sh "$refusal"
           }
-          accept="Accept: application/vnd.github+json"
-          reply="$RUNNER_TEMP/reply"
           jwt="$(bash start/scripts/jwt.sh)"
           echo "::add-mask::$jwt"
-          status="$(curl -sS -o "$reply" -w '%{http_code}' -X POST -H "Authorization: Bearer $jwt" -H "$accept" \
-            -d '{"permissions":{"contents":"read"}}' "https://api.github.com/app/installations/$INSTALLATION/access_tokens")"
-          if [ "$status" != 201 ]; then
-            app="$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $jwt" -H "$accept" https://api.github.com/app)"
-            if [ "$app" != 200 ]; then
-              bash start/scripts/refuse.sh --keep-open "Nothing was done yet: this front door's App is not working (its id or private key here is wrong, or GitHub did not answer), which is for the owner of this repository to put right; the run is $RUN. This issue stays open, and its run can be started again once that is done."
-              exit 1
-            fi
-            refuse_alike
-            exit 0
+          setup_jwt=""
+          if [ -n "$SETUP_ID" ] && [ -n "$SETUP_KEY" ]; then
+            setup_jwt="$(APP_ID="$SETUP_ID" APP_PRIVATE_KEY="$SETUP_KEY" bash start/scripts/jwt.sh)"
+            echo "::add-mask::$setup_jwt"
           fi
-          token="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["token"])' "$reply")"
-          echo "::add-mask::$token"
-          curl -sS -o "$reply" -H "Authorization: Bearer $token" -H "$accept" "https://api.github.com/installation/repositories?per_page=100"
-          # The repository the install meant: the installation's one with
-          # no adoption yet, by the sweep's own rules and by id, or the
-          # newest created among several, so a repository added to an
-          # account's installation is one press too; none is a refusal.
-          APP_TOKEN="$token" python3 -c 'import json, os, sys
-          sys.path.insert(0, "start/scripts")
-          import sweep
-          data = json.load(open(sys.argv[1]))
-          found = data.get("repositories") if isinstance(data, dict) else None
-          found = [dict(r, by_id=True) for r in (found or []) if isinstance(r, dict) and "id" in r]
-          try:
-              meant = sweep.chosen(sweep.GitHub(os.environ["APP_TOKEN"]), found)
-          except sweep.GitHubError:
-              meant = None
-          if meant:
-              print(meant["id"])' "$reply" > "$RUNNER_TEMP/one" 2>/dev/null || : > "$RUNNER_TEMP/one"
-          repository_id="$(head -n 1 "$RUNNER_TEMP/one")"
-          permission=none
-          case "$repository_id" in ""|*[!0-9]*) repository_id="" ;; esac
-          if [ -n "$repository_id" ]; then
-            permission="$(GH_TOKEN="$token" gh api "repositories/$repository_id/collaborators/$AUTHOR/permission" --jq .permission 2>/dev/null || echo none)"
+          if APP_JWT="$jwt" SETUP_JWT="$setup_jwt" python3 start/scripts/resolve.py \
+               --installation "$INSTALLATION" --author "$AUTHOR" --out "$RUNNER_TEMP/resolved" 2> "$RUNNER_TEMP/resolve-said"; then
+            code=0
+          else
+            code=$?
           fi
-          curl -sS -X DELETE -H "Authorization: Bearer $token" -H "$accept" https://api.github.com/installation/token -o /dev/null || true
-          if [ "$permission" != admin ]; then
-            refuse_alike
-            exit 0
-          fi
-          echo "repository_id=$repository_id" >> "$GITHUB_OUTPUT"
-          echo "the installation reaches one repository with no adoption yet, which the author administers; its name was not read here"
+          case "$code" in
+            0) cat "$RUNNER_TEMP/resolved" >> "$GITHUB_OUTPUT" ;;
+            3) refuse_alike ;;
+            4) bash start/scripts/refuse.sh --keep-open "Nothing was done yet: this front door's App is not working (its id or private key here is wrong, or GitHub did not answer), which is for the owner of this repository to put right; the run is $RUN. This issue stays open, and its run can be started again once that is done."
+               exit 1 ;;
+            *) echo "the installation could not be resolved: $(head -n 1 "$RUNNER_TEMP/resolve-said")"
+               exit 1 ;;
+          esac
 
       # For the account alone, with metadata read: it fails only when that
       # account did not install the App, and says nothing about the
@@ -253,17 +231,72 @@ jobs:
           gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Something went wrong while handling this request, and it stopped; the run is $RUN. This issue stays open for the owner of this repository to look at."
 
   # The adoption itself, shared with the sweep; the secrets it needs are
-  # this repository's own.
+  # this repository's own. A named repository is one run, which answers
+  # the issue itself.
   adopt:
     needs: request
-    if: needs.request.result == 'success' && needs.request.outputs.refused != 'true'
+    if: needs.request.result == 'success' && needs.request.outputs.refused != 'true' && needs.request.outputs.repository != ''
     uses: ./.github/workflows/adopt-run.yml
     with:
       repository: ${{ needs.request.outputs.repository }}
-      installation_id: ${{ needs.request.outputs.installation }}
-      repository_id: ${{ needs.request.outputs.repository_id }}
       mode: ${{ needs.request.outputs.mode }}
       metrics: ${{ needs.request.outputs.metrics }}
+      merge: ${{ needs.request.outputs.merge }}
       requester: ${{ github.event.issue.user.login }}
       issue: ${{ github.event.issue.number }}
     secrets: inherit
+
+  # An installation is one run per repository it reaches with no adoption
+  # yet, side by side, each by ids; the issue is answered once, below.
+  adopt_each:
+    needs: request
+    if: needs.request.result == 'success' && needs.request.outputs.refused != 'true' && needs.request.outputs.repository_ids != ''
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        repository_id: ${{ fromJson(needs.request.outputs.repository_ids || '[]') }}
+    uses: ./.github/workflows/adopt-run.yml
+    with:
+      installation_id: ${{ needs.request.outputs.installation_id }}
+      repository_id: ${{ matrix.repository_id }}
+      mode: ${{ needs.request.outputs.mode }}
+      metrics: ${{ needs.request.outputs.metrics }}
+      merge: ${{ needs.request.outputs.merge }}
+      requester: ${{ github.event.issue.user.login }}
+      issue: ${{ github.event.issue.number }}
+      answer: caller
+    secrets: inherit
+
+  # One answer for the installation's repositories, naming none: how many
+  # pull requests are open, and whether every run finished.
+  answer:
+    needs: [request, adopt_each]
+    if: always() && needs.request.result == 'success' && needs.request.outputs.refused != 'true' && needs.request.outputs.repository_ids != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ISSUE: ${{ github.event.issue.number }}
+      COUNT: ${{ needs.request.outputs.count }}
+      RESULT: ${{ needs.adopt_each.result }}
+      MERGE: ${{ needs.request.outputs.merge }}
+      GH_TOKEN: ${{ github.token }}
+      RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Answer the request and close it
+        run: |
+          if [ "$COUNT" = 1 ]; then
+            opened="the pull request is open in your repository"
+          else
+            opened="$COUNT pull requests are open, one in each of your repositories the installation reaches with no adoption yet"
+          fi
+          merged=""
+          if [ "$MERGE" = true ]; then
+            merged=" Each is merged, or has auto-merge armed where the repository's rules require its check; one the run could not merge is left to you, and the pull request stays open."
+          fi
+          if [ "$RESULT" = success ]; then
+            gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Done: $opened, from the branch sdlc/adopt; each lists every file it brings and the steps that are left, and a new repository has the issue \"Set up this project\" too.$merged This issue is closed."
+            gh issue close "$ISSUE" --repo "$GITHUB_REPOSITORY" --reason completed
+          else
+            gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "At least one of the $COUNT adoptions stopped with a failure; the others may be done. The run is $RUN. This issue stays open for the owner of this repository to look at. If a run pushed a branch sdlc/adopt to a repository before it stopped, delete that branch before a new request."
+          fi

@@ -435,18 +435,6 @@ def created_at(repository):
     return moment.timestamp()
 
 
-def chosen(github, repositories):
-    """The repository a form that came from the install means: the one with
-    no adoption yet, or the newest created among several, since a person
-    who has just made a repository and installed the App on it, or added
-    it to an installation that holds older ones, means that one; None when
-    the installation has none to adopt."""
-    free = unadopted(github, repositories)
-    if not free:
-        return None
-    return max(free, key=created_at)
-
-
 def found(github, path):
     """True when GitHub answers the GET, False on a clean 404; any other
     refusal is raised, since it says nothing about the repository."""

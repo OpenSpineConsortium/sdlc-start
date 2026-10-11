@@ -68,6 +68,16 @@ on:
         description: The request's issue number on this repository
         type: string
         required: true
+      merge:
+        description: "true when the person asked the run to merge the pull request"
+        type: string
+        required: false
+        default: "false"
+      answer:
+        description: who answers the issue, this run or the caller, which answers once for an installation's several repositories
+        type: string
+        required: false
+        default: run
   workflow_dispatch:
     inputs:
       installation_id:
@@ -95,13 +105,12 @@ jobs:
   adopt:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Keyed on the issue on the form's path, so a third request for one
-    # repository is never cancelled while pending, which would leave its
-    # issue open and unanswered; the push of sdlc/adopt settles two runs
-    # for one repository. On the sweep's path two dispatches for one
-    # repository are the same work, and the pending one may go.
+    # Keyed on the request and the repository, so an installation's several
+    # repositories run side by side and two requests for one repository
+    # both run, the push of sdlc/adopt settling them; on the sweep's path
+    # two dispatches for one repository are the same work.
     concurrency:
-      group: adopt-run-${{ inputs.issue || inputs.repository_id }}
+      group: adopt-run-${{ inputs.issue || 'sweep' }}-${{ inputs.repository_id || inputs.repository }}
       cancel-in-progress: false
     env:
       ISSUE: ${{ inputs.issue }}
@@ -547,6 +556,54 @@ jobs:
           gh api --method DELETE installation/token --silent \
             || echo "::warning::the Setup App's token could not be revoked; it expires within the hour"
 
+      # Its one job done, the Setup App uninstalls itself, which an App may
+      # do with its own JWT, when its installation reaches this repository
+      # alone; one that reaches more stays, and the pull request says so.
+      - name: Uninstall the Setup App when this was its only repository
+        if: env.REFUSED != 'true' && env.SETTINGS == 'applied'
+        env:
+          APP_ID: ${{ vars.SDLC_SETUP_APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.SDLC_SETUP_APP_PRIVATE_KEY }}
+          TARGET: ${{ env.TARGET }}
+        run: |
+          accept="Accept: application/vnd.github+json"
+          jwt="$(bash start/scripts/jwt.sh)"
+          echo "::add-mask::$jwt"
+          curl -sS -o "$RUNNER_TEMP/setup-installation" -H "Authorization: Bearer $jwt" -H "$accept" \
+            "https://api.github.com/repos/$TARGET/installation"
+          read -r id selection < <(python3 -c 'import json, sys
+          data = json.load(open(sys.argv[1]))
+          print(data.get("id", ""), data.get("repository_selection", ""))' "$RUNNER_TEMP/setup-installation")
+          if [ -z "$id" ]; then
+            echo "the Setup App's installation was not found; nothing to uninstall"
+            exit 0
+          fi
+          count=0
+          if [ "$selection" = selected ]; then
+            token="$(curl -sS -X POST -H "Authorization: Bearer $jwt" -H "$accept" -d '{"permissions":{"metadata":"read"}}' \
+              "https://api.github.com/app/installations/$id/access_tokens" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("token", ""))')"
+            echo "::add-mask::$token"
+            count="$(curl -sS -H "Authorization: Bearer $token" -H "$accept" "https://api.github.com/installation/repositories?per_page=2" \
+              | python3 -c 'import json, sys; print(json.load(sys.stdin).get("total_count", 0))')"
+            curl -sS -X DELETE -H "Authorization: Bearer $token" -H "$accept" https://api.github.com/installation/token -o /dev/null || true
+          fi
+          if [ "$count" = 1 ]; then
+            status="$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: Bearer $jwt" -H "$accept" "https://api.github.com/app/installations/$id")"
+            if [ "$status" = 204 ]; then
+              python3 -c 'import json, sys
+          path = sys.argv[1]
+          report = json.load(open(path))
+          report["uninstalled"] = True
+          json.dump(report, open(path, "w"), indent=2)' "$RUNNER_TEMP/settings.json"
+              echo "SETUP_UNINSTALLED=true" >> "$GITHUB_ENV"
+              echo "the Setup App uninstalled itself: this was its only repository"
+              exit 0
+            fi
+            echo "::warning::the Setup App could not uninstall itself; the pull request says to uninstall it"
+            exit 0
+          fi
+          echo "the Setup App stays installed: its installation reaches more than this repository"
+
       # A settings step that died before its report leaves a report that
       # says so, since the Setup App's token may have applied some of them.
       - name: Write the pull request's text
@@ -662,8 +719,29 @@ jobs:
             echo "::warning::the issue \"Set up this project\" could not be opened in the repository: $(tail -n 1 "$RUNNER_TEMP/init-said")"
           fi
 
+      # The person asked the run to merge: it merges, or arms auto-merge
+      # where the repository's rules require the check first, and says
+      # which in its answer; a pull request it cannot merge stays open.
+      - name: Merge the pull request when asked
+        if: env.REFUSED != 'true' && inputs.merge == 'true'
+        env:
+          GH_TOKEN: ${{ steps.target-token.outputs.token }}
+          TARGET: ${{ env.TARGET }}
+        run: |
+          number="$(sed 's#.*/##' "$RUNNER_TEMP/pull-request" | tr -d '[:space:]')"
+          if gh pr merge "$number" --repo "$TARGET" --merge --delete-branch > /dev/null 2>&1; then
+            echo "MERGED=merged" >> "$GITHUB_ENV"
+            echo "the pull request is merged"
+          elif gh pr merge "$number" --repo "$TARGET" --auto --merge --delete-branch > /dev/null 2>&1; then
+            echo "MERGED=auto" >> "$GITHUB_ENV"
+            echo "auto-merge is armed: the pull request merges when its check passes"
+          else
+            echo "MERGED=no" >> "$GITHUB_ENV"
+            echo "::warning::the run could not merge the pull request; it stays open"
+          fi
+
       - name: Answer the request and close it
-        if: env.REFUSED != 'true' && inputs.issue != ''
+        if: env.REFUSED != 'true' && inputs.issue != '' && inputs.answer != 'caller'
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET: ${{ env.TARGET }}
@@ -675,10 +753,20 @@ jobs:
             new:*) issue=" The issue \"Set up this project\" could not be opened there; the pull request's next steps and its docs/setup/owner-checklist.md stand in for it." ;;
           esac
           settings=""
-          case "${SETTINGS:-}" in
-            applied|not-reported) settings=" The pull request's section Settings says what the Setup App could do for the repository's settings; uninstall that App now, since that was its one job." ;;
+          if [ "${SETUP_UNINSTALLED:-}" = true ]; then
+            settings=" The Setup App applied the repository's settings and uninstalled itself."
+          else
+            case "${SETTINGS:-}" in
+              applied|not-reported) settings=" The pull request's section Settings says what the Setup App could do for the repository's settings; uninstall that App now, since that was its one job." ;;
+            esac
+          fi
+          merged=""
+          case "${MERGED:-}" in
+            merged) merged=" It is merged, as you asked." ;;
+            auto) merged=" Auto-merge is armed on it, as you asked: it merges when its check passes." ;;
+            no) merged=" The run could not merge it, so it is yours to merge." ;;
           esac
-          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Done: the pull request is open in $SAID, from the branch sdlc/adopt${PULLS_LINK:+: $PULLS_LINK}. Read it, then merge it; it lists every file it brings and the steps that are left.$issue$settings This issue is closed."
+          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Done: the pull request is open in $SAID, from the branch sdlc/adopt${PULLS_LINK:+: $PULLS_LINK}.$merged It lists every file it brings and the steps that are left.$issue$settings This issue is closed."
           gh issue close "$ISSUE" --repo "$GITHUB_REPOSITORY" --reason completed
 
       # The front door's own Setup App not working is the owner's to fix,
@@ -707,7 +795,7 @@ jobs:
       # A run that had the Setup App's token may have applied settings
       # before it stopped, and says so.
       - name: Say so when something failed
-        if: failure() && env.REFUSED != 'true' && inputs.issue != ''
+        if: failure() && env.REFUSED != 'true' && inputs.issue != '' && inputs.answer != 'caller'
         env:
           GH_TOKEN: ${{ github.token }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
