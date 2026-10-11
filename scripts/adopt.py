@@ -163,8 +163,8 @@ SETUP_APP = "Symphony Setup"
 SETUP_SCHEMA = "sdlc-setup/1"
 SETUP_OUTCOMES = ("applied", "not-set-up", "not-installed", "front-door-broken", "not-reported")
 SETUP_SCRIPT = "scripts/setup-repo.sh"
-THE_SETTINGS = ("the default branch's ruleset, delete-on-merge and auto-merge, and secret scanning with push"
-                " protection")
+THE_SETTINGS = ("the default branch's ruleset, delete-on-merge and auto-merge, the topic symphony, and secret"
+                " scanning with push protection")
 
 
 class FormError(Exception):
@@ -1068,7 +1068,8 @@ def settings_done(report):
     secret scanning aside, which the plan or the visibility may refuse and
     which the section says so."""
     return (report is not None and report["outcome"] == "applied"
-            and setting_state(report, "ruleset") in ("done", "exists") and setting_state(report, "toggles") == "done")
+            and setting_state(report, "ruleset") in ("done", "exists") and setting_state(report, "toggles") == "done"
+            and setting_state(report, "topic") == "done")
 
 
 def every_setting_done(report):
@@ -1119,6 +1120,21 @@ def toggles_line(manifest, report):
             f" both under https://github.com/{manifest['repository']}/settings.")
 
 
+def topic_line(manifest, report):
+    """The topic is what the repository's page shows of the adoption, so
+    the line says what it is for; when GitHub refused it, where to add it:
+    the gear beside About on the repository's page."""
+    why = ("so the repository page says it is adopted and the Symphony browser extension's button reads Ready for"
+           " Symphony")
+    if setting_state(report, "topic") == "done":
+        was = report["settings"]["topic"].get("detail")
+        if was:
+            return f"- The topic `symphony`: {was}, {why}."
+        return f"- The topic `symphony`: set, {why}; the topics you had stay."
+    return (f"- The topic `symphony`: not set{github_said(report, 'topic')}; add it with the gear beside About on"
+            f" https://github.com/{manifest['repository']}, {why}.")
+
+
 def scanning_line(manifest, report):
     security = f"https://github.com/{manifest['repository']}/settings/security_analysis"
     if setting_state(report, "secret_scanning") != "done":
@@ -1140,7 +1156,8 @@ def by_hand_pointer(manifest):
     if manifest["mode"] == "new":
         return f"Step 2 of the next steps applies them by hand, with `{SETUP_SCRIPT}`."
     return ("Step 3 of the next steps protects the default branch; the two toggles are under"
-            f" https://github.com/{repo}/settings and secret scanning with push protection under"
+            f" https://github.com/{repo}/settings, the topic symphony is added with the gear beside About on"
+            f" https://github.com/{repo}, and secret scanning with push protection under"
             f" https://github.com/{repo}/settings/security_analysis, where the plan offers them.")
 
 
@@ -1169,7 +1186,8 @@ def settings_section(manifest, report):
         parts.append(f"The {SETUP_APP} App, which you installed on this repository, {did} {what}; what it could do"
                      " does not wait for the merge, and closing this pull request leaves it as it is:")
         parts.append("")
-        parts += [ruleset_line(manifest, report), toggles_line(manifest, report), scanning_line(manifest, report)]
+        parts += [ruleset_line(manifest, report), toggles_line(manifest, report), topic_line(manifest, report),
+                  scanning_line(manifest, report)]
         parts.append("")
         parts.append(uninstalled_sentence(manifest) if report.get("uninstalled") else uninstall_sentence(manifest))
     elif outcome == "not-installed":
@@ -1203,9 +1221,10 @@ def next_steps_new(manifest, report=None):
     App, the setup script is not needed and the step says what is left."""
     repo = manifest["repository"]
     by_hand = ("2. From a clone, on your own computer, with the GitHub CLI signed in as an administrator, run"
-               " `bash scripts/setup-repo.sh`: the default branch's rules, delete-on-merge and auto-merge, secret"
-               " scanning, the labels and a check of `.github/CODEOWNERS`. `docs/setup/owner-checklist.md` has the"
-               " rest: the Claude GitHub App and its token, the Projects and the routines.")
+               " `bash scripts/setup-repo.sh`: the default branch's rules, delete-on-merge and auto-merge, the topic"
+               " symphony, secret scanning, the labels and a check of `.github/CODEOWNERS`."
+               " `docs/setup/owner-checklist.md` has the rest: the Claude GitHub App and its token, the Projects and"
+               " the routines.")
     if settings_done(report):
         left = "GitHub's reading of `.github/CODEOWNERS`, which the file's own page shows after the merge"
         if setting_state(report, "push_protection") != "done":
