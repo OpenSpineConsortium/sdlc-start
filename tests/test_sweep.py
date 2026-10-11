@@ -264,6 +264,42 @@ class Sweep(unittest.TestCase):
         code, written, _, _ = self.run_sweep(FakeGitHub(), "--pending", self.pending_file())
         self.assertEqual((code, written), (0, "77\t4242\tnew\n"))
 
+    def test_the_open_requests_name_their_repositories_under_the_forms_heading(self):
+        """The requests come as gh issue list --json body writes them; the
+        repository is the line under the form's heading, whatever its case
+        or line endings, and an empty field is GitHub's _No response_."""
+        bodies = [
+            {"body": "### Repository\n\nOcto-Org/Gadget\n\n### Kind\n\nNew repository: the whole template\n"},
+            {"body": "### Repository\r\n\r\n  mona/WIDGET  \r\n\r\n### Kind\r\n\r\nExisting\r\n"},
+            {"body": "### Repository\n\n_No response_\n\n### Kind\n\nExisting\n"},
+            {"body": "### Kind\n\nExisting\n\n### Repository\n\n### Metrics\n\nShare\n"},
+            {"body": None},
+            {"number": 7},
+        ]
+        requests = Path(self.scratch.name) / "requests.json"
+        requests.write_text(json.dumps(bodies), encoding="utf-8")
+        github = FakeGitHub(repositories=[REPOSITORY, ORG_REPOSITORY, repository("hubot/widget", 6)])
+        code, written, out, err = self.run_sweep(github, "--requests", str(requests))
+        self.assertEqual((code, written, err), (0, "77\t6\tnew\n", ""))
+        self.assertEqual(out, "sweep: 1 installation, 3 repositories, 1 candidate, 2 skipped (2 pending)\n")
+        self.assertEqual(sweep.read_requests(str(requests)), frozenset({"octo-org/gadget", "mona/widget"}))
+        requests.write_text("[]", encoding="utf-8")
+        code, written, _, _ = self.run_sweep(FakeGitHub(), "--requests", str(requests))
+        self.assertEqual((code, written), (0, "77\t4242\tnew\n"))
+
+    def test_requests_that_are_not_the_json_gh_writes_are_an_error_before_any_call(self):
+        requests = Path(self.scratch.name) / "requests.json"
+        for text in ("not json", '{"body": "### Repository\\n\\nocto-org/gadget"}'):
+            requests.write_text(text, encoding="utf-8")
+            github = FakeGitHub()
+            code, written, out, err = self.run_sweep(github, "--requests", str(requests))
+            self.assertEqual((code, written, out), (2, None, ""))
+            self.assertTrue(err.startswith("sweep: "))
+            self.assertEqual(github.calls, [])
+        github = FakeGitHub()
+        code, written, out, err = self.run_sweep(github, "--requests", str(Path(self.scratch.name) / "missing"))
+        self.assertEqual((code, written, out, github.calls), (2, None, "", []))
+
     def test_a_pending_file_that_cannot_be_read_is_an_error_before_any_call(self):
         github = FakeGitHub()
         code, written, out, err = self.run_sweep(github, "--pending", str(Path(self.scratch.name) / "missing"))

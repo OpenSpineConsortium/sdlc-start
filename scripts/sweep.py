@@ -32,9 +32,11 @@ A repository is left out, each reason counted, when
   own         its owner is the organization's own (--own): the template,
               this front door and the rest take no adoption of themselves;
   archived    GitHub refuses every push to it;
-  pending     it is named on a line of the file --pending, OWNER/NAME in
-              any case, as the repository of a request still open on the
-              front door, so the form's run has it;
+  pending     it is named, OWNER/NAME in any case, on a line of the file
+              --pending or under the heading "### Repository" of an issue
+              in the file --requests (the open requests of the form, as
+              gh issue list --json body writes them), so the form's run
+              has it;
   no commit   its default branch is not there yet, so there is nothing to
               branch from; the README says a README is enough;
   offered     the branch sdlc/adopt is there: an adoption was offered, and
@@ -76,7 +78,8 @@ The workflow's log is public, so stdout carries counts and nothing else: no
 repository, owner or login. Exit 1 when the App's record or its
 installations could not be read, with GitHub's status and message on
 stderr, which name no repository, and no file written; exit 2 when APP_JWT
-is not set or the file --pending cannot be read. Python 3.12 or later,
+is not set or the file --pending or --requests cannot be read. Python
+3.12 or later,
 standard library only. The JWT is read from APP_JWT and never printed;
 each installation's token lives for that installation's repositories and
 is revoked afterwards.
@@ -107,6 +110,9 @@ ADOPT_REF = "refs/heads/sdlc/adopt"
 ADOPT_BRANCH = "sdlc/adopt"
 PROTOCOL_TEXT = "docs/agents/PROTOCOL.md"
 OPT_OUT = ".github/sdlc-adopt"
+# The form's label for the repository, a heading of the issue's body.
+REPOSITORY_HEADING = "### Repository"
+NO_RESPONSE = "_No response_"
 # The title of the issue the adoption run opens, as the App, when the
 # repository's rules refused its push; .github/workflows/adopt-run.yml
 # uses the same words, and the sweep skips the repository while it is open.
@@ -670,6 +676,9 @@ def parse_args(argv):
     parser.add_argument("--pending", metavar="PATH",
                         help="a file naming, OWNER/NAME per line, the repositories of the requests still open on the "
                              "form, which are left to them")
+    parser.add_argument("--requests", metavar="PATH",
+                        help="the open requests of the form as gh issue list --json body writes them; the repository "
+                             "each names is left to it")
     parser.add_argument("--grace-minutes", type=float, default=GRACE_MINUTES,
                         help="leave an installation younger than this alone, so the form may still speak for it "
                              f"(default {GRACE_MINUTES})")
@@ -688,8 +697,40 @@ def read_pending(path):
     return frozenset(line.strip().lower() for line in lines if line.strip())
 
 
+def named_repository(body):
+    """The repository an issue of the form names: the first line under the
+    heading "### Repository", before the next heading; nothing when the
+    field was left empty, which GitHub writes as _No response_."""
+    under = False
+    for line in body.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        word = line.strip()
+        if word == REPOSITORY_HEADING:
+            under = True
+        elif under and word.startswith("### "):
+            return ""
+        elif under and word and word != NO_RESPONSE:
+            return word.lower()
+    return ""
+
+
+def read_requests(path):
+    """The repositories the open requests name, from the JSON list of
+    issues with a body that gh issue list --json body writes; a file that
+    is not that is an OSError, like one that is not there."""
+    if not path:
+        return frozenset()
+    try:
+        issues = json.loads(Path(path).read_text(encoding="utf-8"))
+    except ValueError as problem:
+        raise OSError(f"{path} is not the JSON gh issue list writes ({problem})") from problem
+    if not isinstance(issues, list):
+        raise OSError(f"{path} is not the JSON gh issue list writes (not a list)")
+    named = (named_repository(str(issue.get("body") or "")) for issue in issues if isinstance(issue, dict))
+    return frozenset(name for name in named if name)
+
+
 def settings_from(options):
-    pending = read_pending(options.pending)
+    pending = read_pending(options.pending) | read_requests(options.requests)
     return Settings(options.own, pending, options.grace_minutes * 60, options.budget_seconds)
 
 

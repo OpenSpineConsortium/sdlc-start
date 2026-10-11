@@ -11,8 +11,9 @@ name: Adopt (run)
 # prints it; a repository the sweep found may be private, so its name
 # never reaches this log or the run's inputs: the ids come in, the App's
 # own JWT mints a metadata-only token for that one repository, the id is
-# resolved to a name, and the name is masked before anything else can
-# print it. The names stay inside this one job, so the environment
+# resolved to a name, and the name, the owner's, the requester's and
+# the default branch's are masked before anything else can print them;
+# the head commit the checkout prints names nothing. The names stay inside this one job, so the environment
 # carries them (one sed line sets the three); only a job output, which
 # GitHub drops when it holds a masked value, could not. The issue path
 # brings the requester (the issue's author, an administrator by the
@@ -180,6 +181,12 @@ jobs:
           gh api "repos/$TARGET" --jq '"default_branch=" + .default_branch, "owner_type=" + .owner.type' > "$RUNNER_TEMP/target"
           cat "$RUNNER_TEMP/target" >> "$GITHUB_OUTPUT"
           branch="$(sed -n 's/^default_branch=//p' "$RUNNER_TEMP/target")"
+          # On the sweep's path the branch's name is the repository's too:
+          # masked, at the price of that word wherever else the log says
+          # it. The commit the checkout prints is not, and names nothing.
+          if [ "$SOURCE" = installation ]; then
+            echo "::add-mask::$branch"
+          fi
           # The sweep names nobody: the requester is the owner of a user's
           # repository, or the first direct administrator of an
           # organization's, and the organization itself when none is

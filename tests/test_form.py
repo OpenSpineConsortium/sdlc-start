@@ -151,6 +151,7 @@ class TheWorkflows(unittest.TestCase):
         self.assertIn('--source "$SOURCE"', text)
         self.assertIn("group: adopt-run-${{ inputs.issue || inputs.repository_id }}", text)
         self.assertIn('echo "::add-mask::$requester"', text)
+        self.assertIn('echo "::add-mask::$branch"', text)
 
     def test_the_sweeps_refusal_is_told_in_the_repository_and_the_owner_on_both_paths(self):
         """The sweep has no issue to answer on, so a refusal after the
@@ -180,7 +181,9 @@ class TheWorkflows(unittest.TestCase):
         self.assertIn("bash scripts/jwt.sh", text)
         self.assertIn('echo "::add-mask::$jwt"', text)
         self.assertIn("gh issue list --repo \"$GITHUB_REPOSITORY\" --label adopt --state open", text)
-        self.assertIn('--pending "$RUNNER_TEMP/pending"', text)
+        self.assertIn('--json body > "$RUNNER_TEMP/requests.json"', text)
+        self.assertIn('--requests "$RUNNER_TEMP/requests.json"', text)
+        self.assertNotIn("<<", text)
         self.assertIn("--budget-seconds 420", text)
         self.assertIn("python3 scripts/sweep.py", text)
         self.assertIn("if: always() && env.APP_JWT != ''", text)

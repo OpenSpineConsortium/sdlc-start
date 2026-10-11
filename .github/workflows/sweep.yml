@@ -69,30 +69,19 @@ jobs:
 
       # A request still open on the form's path names its repository in a
       # public issue; the sweep leaves those repositories to their request.
-      - name: List the repositories of the open requests
+      # gh writes the issues to a file that sweep.py reads, so the bodies
+      # never go through a shell pipe (a heredoc on the same command would
+      # take the pipe's place as stdin) and the parsing has tests.
+      - name: List the open requests
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          : > "$RUNNER_TEMP/pending"
-          gh issue list --repo "$GITHUB_REPOSITORY" --label adopt --state open --limit 100 --json body --jq '.[].body' \
-            | python3 - "$RUNNER_TEMP/pending" <<'EOF'
-          import sys
-          # The first body starts at the top of the input, so a newline
-          # goes in front; a body written on Windows carries CR.
-          bodies = "\n" + sys.stdin.read().replace("\r\n", "\n").replace("\r", "\n")
-          names = []
-          for body in bodies.split("\n### Repository\n")[1:]:
-              line = body.strip().split("\n", 1)[0].strip()
-              if line:
-                  names.append(line)
-          with open(sys.argv[1], "w") as out:
-              out.write("".join(name + "\n" for name in names))
-          print(f"open requests: {len(names)}")
-          EOF
+          gh issue list --repo "$GITHUB_REPOSITORY" --label adopt --state open --limit 100 --json body > "$RUNNER_TEMP/requests.json"
+          echo "open requests: $(python3 -c 'import json, sys; print(len(json.load(open(sys.argv[1]))))' "$RUNNER_TEMP/requests.json")"
 
       - name: Find the repositories that have the App and no adoption
         run: |
-          python3 scripts/sweep.py --own "${GITHUB_REPOSITORY_OWNER}" --pending "$RUNNER_TEMP/pending" \
+          python3 scripts/sweep.py --own "${GITHUB_REPOSITORY_OWNER}" --requests "$RUNNER_TEMP/requests.json" \
             --budget-seconds 420 --out "$RUNNER_TEMP/candidates"
 
       # One run per repository, by ids; the run resolves and masks the name.
