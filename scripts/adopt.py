@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""Adopt the OpenSpine SDLC template into a repository, from the form.
+"""Adopt the OpenSpine SDLC template into a repository, from the form or
+from the App's installation.
 
-.github/workflows/adopt.yml runs one subcommand per step:
+.github/workflows/adopt.yml runs parse; .github/workflows/adopt-run.yml,
+which it calls and which the sweep starts by dispatch, runs name, apply,
+body and labels, one subcommand per step:
 
   parse  reads the issue the adoption form made and prints its fields as
          KEY=value lines for $GITHUB_OUTPUT. Anyone can open an issue, so
@@ -817,8 +820,9 @@ def source_of(manifest):
 def opening(manifest):
     repo = manifest["repository"]
     if source_of(manifest) == "installation":
-        asked = (f"The OpenSpine SDLC App opened it because an administrator of {repo} installed the App on it,"
-                 f" which the front door ({FRONT_DOOR}) takes as the request. Nothing changes until you merge it.")
+        asked = (f"The OpenSpine SDLC App opened it because an administrator of {repo} installed the App on it, or"
+                 f" on all of its owner's repositories, which the front door ({FRONT_DOOR}) takes as the request."
+                 " Nothing changes until you merge it.")
     else:
         asked = (f"The OpenSpine SDLC App opened it because an administrator of {repo} asked for it on the adoption"
                  f" form ({FRONT_DOOR}). Nothing changes until you merge it.")
@@ -963,13 +967,14 @@ def kind_note(manifest):
     other kind is one request away."""
     if manifest["mode"] == "new":
         read = ("as a new repository, since its default branch held nothing but what GitHub makes when it"
-                " initializes one (a README, a license, a .gitignore)")
+                " initializes one (a README, a LICENSE or COPYING, a .gitignore or .gitattributes)")
         other = "the protocol alone"
     else:
         read = "as an existing repository, since its default branch holds files of its own"
         other = "the whole template"
     return (f"No form said which kind to bring: the run read this repository {read}. For {other} instead, close this"
-            f" pull request, delete its branch `sdlc/adopt`, and open the form at {FRONT_DOOR} with the other kind.")
+            " pull request, which is the end of the front door's own offers for this repository, then delete its"
+            f" branch `sdlc/adopt` and open the form at {FRONT_DOOR} with the other kind.")
 
 
 def sharing_section(manifest):

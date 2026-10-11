@@ -10,17 +10,27 @@ name: Sweep
 # no .github/sdlc-adopt saying off) it starts adopt-run.yml by dispatch,
 # with the installation's and the repository's ids and the kind the tree
 # shows: a default branch holding nothing but what GitHub makes when it
-# initializes a repository is a new one; anything else is an existing
-# one. The form stays the fast path, answered within a minute; this is
-# the zero-form path, a few minutes behind, and the safety net for a
-# request GitHub lost. Nothing of a repository reaches this public log:
-# scripts/sweep.py prints counts, the candidates go to a file of the run,
-# and the dispatch carries ids, never names. Two sweeps never overlap,
-# and adopt-run.yml's own concurrency and the push of sdlc/adopt settle a
-# repository the form and the sweep both reach. GitHub stops a public
-# repository's scheduled workflows after 60 days without a commit, which
-# the owner re-enables from the Actions tab; this repository's own pull
-# requests keep it active in practice.
+# initializes a repository (a README, a LICENSE or COPYING, a .gitignore
+# or .gitattributes) is a new one; anything else is an existing one. The
+# form stays the fast path, answered within a minute, and the form wins:
+# an installation younger than half an hour is left alone, so a person
+# who installs and then fills in the form keeps their choices, and a
+# repository named on an open request here is left to that request. An
+# installation that has not accepted every permission the pull request
+# needs is passed over, as is a repository whose adoption was offered
+# (the branch sdlc/adopt), declined (a closed pull request from it),
+# refused (the App's issue "OpenSpine SDLC could not open its pull
+# request", open), or opted out (.github/sdlc-adopt saying off); and the
+# organization's own repositories, which use the form. Nothing of a
+# repository reaches this public log: scripts/sweep.py prints counts, the
+# candidates go to a file of the run, and the dispatch carries ids, never
+# names. The sweep has a time budget under the JWT's life, writes each
+# candidate as it is found and dispatches what it found even when cut
+# short, and starts from a different installation each time, so one
+# large installation cannot starve the rest. Two sweeps never overlap.
+# GitHub stops a public repository's scheduled workflows after 60 days
+# without a commit, which the owner re-enables from the Actions tab;
+# this repository's own pull requests keep it active in practice.
 
 on:
   schedule:
@@ -30,6 +40,7 @@ on:
 permissions:
   actions: write
   contents: read
+  issues: read
 
 concurrency:
   group: sweep
@@ -56,15 +67,43 @@ jobs:
           echo "::add-mask::$jwt"
           echo "APP_JWT=$jwt" >> "$GITHUB_ENV"
 
+      # A request still open on the form's path names its repository in a
+      # public issue; the sweep leaves those repositories to their request.
+      - name: List the repositories of the open requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          : > "$RUNNER_TEMP/pending"
+          gh issue list --repo "$GITHUB_REPOSITORY" --label adopt --state open --limit 100 --json body --jq '.[].body' \
+            | python3 - "$RUNNER_TEMP/pending" <<'EOF'
+          import sys
+          # The first body starts at the top of the input, so a newline
+          # goes in front; a body written on Windows carries CR.
+          bodies = "\n" + sys.stdin.read().replace("\r\n", "\n").replace("\r", "\n")
+          names = []
+          for body in bodies.split("\n### Repository\n")[1:]:
+              line = body.strip().split("\n", 1)[0].strip()
+              if line:
+                  names.append(line)
+          with open(sys.argv[1], "w") as out:
+              out.write("".join(name + "\n" for name in names))
+          print(f"open requests: {len(names)}")
+          EOF
+
       - name: Find the repositories that have the App and no adoption
-        run: python3 scripts/sweep.py --own "${GITHUB_REPOSITORY_OWNER}" --out "$RUNNER_TEMP/candidates"
+        run: |
+          python3 scripts/sweep.py --own "${GITHUB_REPOSITORY_OWNER}" --pending "$RUNNER_TEMP/pending" \
+            --budget-seconds 420 --out "$RUNNER_TEMP/candidates"
 
       # One run per repository, by ids; the run resolves and masks the name.
+      # Also after a sweep cut short, which wrote what it found.
       - name: Start one adoption run per repository
+        if: always() && env.APP_JWT != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           started=0
+          [ -f "$RUNNER_TEMP/candidates" ] || : > "$RUNNER_TEMP/candidates"
           while IFS=$'\t' read -r installation repository mode; do
             [ -n "$repository" ] || continue
             gh workflow run adopt-run.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \

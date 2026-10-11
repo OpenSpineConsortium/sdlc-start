@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Answer an adoption request that ends without a pull request: post the
 # reason on its issue, close the issue as not planned, and tell the later
-# steps of .github/workflows/adopt.yml to do nothing, through REFUSED in
-# $GITHUB_ENV. A refusal is the workflow doing its job, so the step that
+# steps of .github/workflows/adopt.yml and adopt-run.yml to do nothing,
+# through REFUSED in $GITHUB_ENV. A refusal is the workflow doing its job, so the step that
 # calls this ends green unless it exits 1 on purpose, as the one for a
 # broken App does so that the owner sees a red run; nothing else turns the
 # run red but a real failure. With --keep-open the issue stays open, for a
@@ -14,7 +14,8 @@
 # Needs ISSUE_TOKEN (the workflow's GITHUB_TOKEN, which may write this
 # repository's issues), ISSUE (the issue's number) and GITHUB_REPOSITORY.
 # On the sweep's path there is no issue: ISSUE is empty, nothing is
-# posted, and the refusal is the log's line and REFUSED alone.
+# posted here, and the message is kept in $RUNNER_TEMP/refusal for the
+# step of adopt-run.yml that tells the repository.
 #
 # Usage: bash scripts/refuse.sh [--keep-open] MESSAGE
 set -eu
@@ -33,4 +34,7 @@ if [ -n "${ISSUE:-}" ]; then
   fi
 fi
 echo "REFUSED=true" >> "$GITHUB_ENV"
+if [ -n "${RUNNER_TEMP:-}" ]; then
+  printf '%s\n' "$message" > "$RUNNER_TEMP/refusal"
+fi
 echo "refused: $message"

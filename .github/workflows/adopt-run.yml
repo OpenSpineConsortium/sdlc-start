@@ -12,17 +12,21 @@ name: Adopt (run)
 # never reaches this log or the run's inputs: the ids come in, the App's
 # own JWT mints a metadata-only token for that one repository, the id is
 # resolved to a name, and the name is masked before anything else can
-# print it. Names travel in the job's environment and not in step
-# outputs, which GitHub refuses when they hold a masked value. The issue
-# path brings the requester (the issue's author, an administrator by the
+# print it. The names stay inside this one job, so the environment
+# carries them (one sed line sets the three); only a job output, which
+# GitHub drops when it holds a masked value, could not. The issue path
+# brings the requester (the issue's author, an administrator by the
 # check adopt.yml made); the sweep brings none, and the run picks the
 # owner of a user's repository or the first direct administrator of an
-# organization's, which only matters for the copy's CODEOWNERS. Every
-# answer on an issue, and the refusals that comment on one, run only when
-# an issue number came in; on the sweep's path a refusal is a line in
-# this log and a failure is a red run, since the repository's owner asked
-# by installing the App and has nothing of ours to read but the pull
-# request. The rest holds as before: the template's token is read-only
+# organization's, masked too, which only matters for the copy's
+# CODEOWNERS. Every answer on an issue runs only when an issue number
+# came in. On the sweep's path a refusal after the token was minted
+# (the push turned away by a ruleset, say) is told to the repository in
+# one issue of the App's, which the sweep reads as "tried, and told" and
+# skips until the person closes it; a refusal the sweep's own checks
+# would have caught stays a line in this log, and a failure is a red run.
+# A broken Setup App of the front door's is told to the owner on both
+# paths. The rest holds as before: the template's token is read-only
 # and revoked right after the one checkout, the repository is checked
 # out at depth one on its qualified default branch, git's messages stay
 # out of this public log, the Setup App's token is minted after the push
@@ -78,8 +82,13 @@ jobs:
   adopt:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Keyed on the issue on the form's path, so a third request for one
+    # repository is never cancelled while pending, which would leave its
+    # issue open and unanswered; the push of sdlc/adopt settles two runs
+    # for one repository. On the sweep's path two dispatches for one
+    # repository are the same work, and the pending one may go.
     concurrency:
-      group: adopt-run-${{ inputs.repository || inputs.repository_id }}
+      group: adopt-run-${{ inputs.issue || inputs.repository_id }}
       cancel-in-progress: false
     env:
       ISSUE: ${{ inputs.issue }}
@@ -181,6 +190,9 @@ jobs:
               found="$(gh api "repos/$TARGET/collaborators?affiliation=direct&per_page=100" --jq 'first(.[] | select(.permissions.admin)) | .login // empty' 2>/dev/null || true)"
               [ -n "$found" ] && requester="$found"
             fi
+            # The runner prints the job's environment in every step's
+            # header, so the login is masked like the names.
+            echo "::add-mask::$requester"
             echo "REQUESTER=$requester" >> "$GITHUB_ENV"
           fi
           if ! gh api "repos/$TARGET/branches/$branch" --silent 2>/dev/null; then
@@ -335,6 +347,36 @@ jobs:
               bash "$refuse" "Nothing was done: GitHub refused the push of the branch sdlc/adopt to $TARGET; a ruleset or a branch protection there may stand in its way. Let the App push that branch, then open a new request with the form; this one is closed."
             fi
           fi
+
+      # The sweep's path has no issue to answer, and the sweep would try
+      # again every ten minutes: a refusal reached after the token was
+      # minted (the push turned away by a ruleset of theirs, every file
+      # there already) is told to the repository in one issue of the
+      # App's, which the sweep reads and skips while it is open. A push
+      # another run won is no refusal of theirs and gets no issue.
+      - name: Tell the repository when the sweep's adoption was refused
+        if: env.REFUSED == 'true' && env.SOURCE == 'installation' && steps.target-token.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.target-token.outputs.token }}
+          TARGET: ${{ env.TARGET }}
+        run: |
+          taken="$(gh api "repos/$TARGET/git/matching-refs/heads/sdlc/adopt" --jq '[.[] | select(.ref == "refs/heads/sdlc/adopt")] | length' 2>/dev/null || echo 0)"
+          if [ "$taken" != 0 ]; then
+            echo "another run holds the branch; nothing to tell"
+            exit 0
+          fi
+          title="OpenSpine SDLC could not open its pull request"
+          open="$(gh issue list --repo "$TARGET" --state open --author app/openspine-sdlc --search "in:title \"$title\"" --json title --jq '[.[] | select(.title == "OpenSpine SDLC could not open its pull request")] | length' 2>/dev/null || echo 0)"
+          if [ "$open" != 0 ]; then
+            echo "the repository has the issue already"
+            exit 0
+          fi
+          printf '%s\n\n%s\n' \
+            "The OpenSpine SDLC App was installed on this repository, which its front door (https://github.com/OpenSpineConsortium/sdlc-start) takes as a request for its adoption pull request, and the run that tried stopped: $(cat "$RUNNER_TEMP/refusal" 2>/dev/null || echo "see the front door's README")" \
+            "Where it says to open a new request with the form, you may; or put right what stood in the way and close this issue, and the front door tries again within about ten minutes. To decline the adoption and keep the App, write off in .github/sdlc-adopt on the default branch." \
+            > "$RUNNER_TEMP/refusal-issue.md"
+          gh issue create --repo "$TARGET" --title "$title" --body-file "$RUNNER_TEMP/refusal-issue.md" > /dev/null
+          echo "the repository was told"
 
       # Only whether the Setup App's key is set reaches the shell, never
       # the key; without the pair, the pull request says the front door
@@ -568,21 +610,26 @@ jobs:
           esac
           gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Done: the pull request is open in $TARGET, from the branch sdlc/adopt: https://github.com/$TARGET/pulls. Read it, then merge it; it lists every file it brings and the steps that are left.$issue$settings This issue is closed."
           gh issue close "$ISSUE" --repo "$GITHUB_REPOSITORY" --reason completed
-          # The front door's own Setup App not working is the owner's to
-          # fix, and a red run is reported only to the person who opened
-          # the request, so the owner is told in an issue here: one, opened
-          # the first time and commented on after.
-          if [ "${SETTINGS:-}" = front-door-broken ]; then
-            title="Setup App of this front door is not working"
-            text="A request's run could not make the Setup App's token for the repository, and neither could the probe on this repository's own installation of it, so the variable SDLC_SETUP_APP_ID or the secret SDLC_SETUP_APP_PRIVATE_KEY here is wrong, the Setup App is not installed on this repository, or GitHub did not answer (README.md, For the owner, steps 7 and 8). The request was answered without the settings; the run is $RUN."
-            echo "::error::$text"
-            number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$title\"" --json number,title \
-              --jq '[.[] | select(.title == "Setup App of this front door is not working")][0].number // empty')"
-            if [ -n "$number" ]; then
-              gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "$text"
-            else
-              gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$text"
-            fi
+
+      # The front door's own Setup App not working is the owner's to fix,
+      # on either path, and a red run is reported only to whoever started
+      # it, so the owner is told in an issue here: one, opened the first
+      # time and commented on after.
+      - name: Tell the owner when this front door's Setup App is not working
+        if: env.REFUSED != 'true' && env.SETTINGS == 'front-door-broken'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Setup App of this front door is not working"
+          text="A request's run could not make the Setup App's token for the repository, and neither could the probe on this repository's own installation of it, so the variable SDLC_SETUP_APP_ID or the secret SDLC_SETUP_APP_PRIVATE_KEY here is wrong, the Setup App is not installed on this repository, or GitHub did not answer (README.md, For the owner, steps 7 and 8). The request was answered without the settings; the run is $RUN."
+          echo "::error::$text"
+          number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$title\"" --json number,title \
+            --jq '[.[] | select(.title == "Setup App of this front door is not working")][0].number // empty')"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "$text"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$text"
           fi
 
       # Not after a refusal, which said what was wrong already; that holds

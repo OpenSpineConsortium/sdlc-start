@@ -349,13 +349,16 @@ class Body(unittest.TestCase):
         request, a note says how the kind was read and how to get the other,
         and CODEOWNERS' note says who the run picked."""
         body = self.body(source="installation", owner_type="Organization", creator="octo-org")
-        self.assertIn("because an administrator of octo-org/widget installed the App on it, which the front door"
-                      " (https://github.com/OpenSpineConsortium/sdlc-start) takes as the request.", body)
+        self.assertIn("because an administrator of octo-org/widget installed the App on it, or on all of its owner's"
+                      " repositories, which the front door (https://github.com/OpenSpineConsortium/sdlc-start) takes as"
+                      " the request.", body)
         self.assertNotIn("asked for it on the adoption form", body)
         self.assertIn("No form said which kind to bring: the run read this repository as a new repository, since its"
-                      " default branch held nothing but what GitHub makes when it initializes one", body)
-        self.assertIn("For the protocol alone instead, close this pull request, delete its branch `sdlc/adopt`, and"
-                      " open the form at https://github.com/OpenSpineConsortium/sdlc-start with the other kind.", body)
+                      " default branch held nothing but what GitHub makes when it initializes one (a README, a LICENSE"
+                      " or COPYING, a .gitignore or .gitattributes)", body)
+        self.assertIn("For the protocol alone instead, close this pull request, which is the end of the front door's"
+                      " own offers for this repository, then delete its branch `sdlc/adopt` and open the form at"
+                      " https://github.com/OpenSpineConsortium/sdlc-start with the other kind.", body)
         self.assertIn("`.github/CODEOWNERS` names `octo-org`, the organization itself, since the run found no"
                       " administrator among the repository's direct collaborators; GitHub marks that line as one it"
                       " cannot resolve, so name a person or a team, because GitHub asks", body)

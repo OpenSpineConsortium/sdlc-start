@@ -149,18 +149,45 @@ class TheWorkflows(unittest.TestCase):
         self.assertIn("if: env.REFUSED != 'true' && inputs.issue != ''\n", text)
         self.assertIn("if: failure() && env.REFUSED != 'true' && inputs.issue != ''\n", text)
         self.assertIn('--source "$SOURCE"', text)
+        self.assertIn("group: adopt-run-${{ inputs.issue || inputs.repository_id }}", text)
+        self.assertIn('echo "::add-mask::$requester"', text)
+
+    def test_the_sweeps_refusal_is_told_in_the_repository_and_the_owner_on_both_paths(self):
+        """The sweep has no issue to answer on, so a refusal after the
+        repository's token was minted becomes one issue of the App's there,
+        which the sweep reads and skips while open; a broken Setup App of
+        the front door's is the owner's news whichever path the run took."""
+        text = (ROOT / ".github/workflows/adopt-run.yml").read_text(encoding="utf-8")
+        told = text.index("name: Tell the repository when the sweep's adoption was refused")
+        self.assertIn("if: env.REFUSED == 'true' && env.SOURCE == 'installation' && steps.target-token.outcome == 'success'",
+                      text[told:])
+        self.assertIn('title="OpenSpine SDLC could not open its pull request"', text)
+        self.assertIn('"$RUNNER_TEMP/refusal"', text)
+        self.assertIn("--author app/openspine-sdlc", text)
+        self.assertIn("write off in .github/sdlc-adopt", text)
+        owner = text.index("name: Tell the owner when this front door's Setup App is not working")
+        self.assertIn("if: env.REFUSED != 'true' && env.SETTINGS == 'front-door-broken'\n", text[owner:])
+        self.assertNotIn("inputs.issue", text[owner:text.index("name: Say so when something failed")])
+        refuse = (ROOT / "scripts/refuse.sh").read_text(encoding="utf-8")
+        self.assertIn('if [ -n "${ISSUE:-}" ]; then', refuse)
+        self.assertIn('printf \'%s\\n\' "$message" > "$RUNNER_TEMP/refusal"', refuse)
 
     def test_the_sweep_dispatches_ids_only_and_prints_counts(self):
         text = (ROOT / ".github/workflows/sweep.yml").read_text(encoding="utf-8")
         self.assertIn('    - cron: "*/10 * * * *"\n', text)
-        self.assertIn("permissions:\n  actions: write\n  contents: read\n", text)
+        self.assertIn("permissions:\n  actions: write\n  contents: read\n  issues: read\n", text)
         self.assertIn("if: vars.SDLC_APP_ID != ''", text)
         self.assertIn("bash scripts/jwt.sh", text)
         self.assertIn('echo "::add-mask::$jwt"', text)
+        self.assertIn("gh issue list --repo \"$GITHUB_REPOSITORY\" --label adopt --state open", text)
+        self.assertIn('--pending "$RUNNER_TEMP/pending"', text)
+        self.assertIn("--budget-seconds 420", text)
         self.assertIn("python3 scripts/sweep.py", text)
+        self.assertIn("if: always() && env.APP_JWT != ''", text)
         self.assertIn("gh workflow run adopt-run.yml", text)
         self.assertIn('-f installation_id="$installation" -f repository_id="$repository" -f mode="$mode"', text)
         self.assertNotIn("full_name", text)
+        self.assertIn("timeout-minutes: 10", text)
 
     def test_the_check_job_is_named_check(self):
         text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
