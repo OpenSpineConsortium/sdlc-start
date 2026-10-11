@@ -211,7 +211,7 @@ jobs:
             exit 1
           fi
           if [ "$permission" != admin ]; then
-            bash start/scripts/refuse.sh "Nothing was done: the Symphony App is not installed on $TARGET, or not given that repository, or your account is not one of its administrators. Install the App at https://github.com/apps/symphony/installations/new and choose the repository, then open a new request with the form as an administrator of it; this one is closed."
+            bash start/scripts/refuse.sh "Nothing was done: the Symphony App is not installed on $TARGET, or not given that repository, or your account is not one of its administrators. Install the App at https://github.com/apps/symphony-dev/installations/new and choose the repository, then open a new request with the form as an administrator of it; this one is closed."
           fi
 
       # What the second job reads: a refusal here means nothing to adopt.
