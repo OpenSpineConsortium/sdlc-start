@@ -396,6 +396,30 @@ def revoke(github):
 # --- one repository ---------------------------------------------------------------
 
 
+def repo_path(repository):
+    """The repository's place in the API: by name, or by id when the dict
+    says so (by_id), for a caller that holds the id and must not learn the
+    name, as the form's workflow does before anything is masked."""
+    if repository.get("by_id"):
+        return f"/repositories/{repository['id']}"
+    return f"/repos/{repository['full_name']}"
+
+
+def unadopted(github, repositories):
+    """The repositories among these that have a commit and no adoption yet:
+    no branch sdlc/adopt, no docs/agents/PROTOCOL.md, no opt-out. The
+    form's workflow asks this of an installation that reaches several,
+    to find the one the person meant; a GitHubError is the caller's."""
+    free = []
+    for repository in repositories:
+        if repository.get("archived") or not has_commit(github, repository):
+            continue
+        if has_adopt_branch(github, repository) or is_adopted(github, repository) or opted_out(github, repository):
+            continue
+        free.append(repository)
+    return free
+
+
 def found(github, path):
     """True when GitHub answers the GET, False on a clean 404; any other
     refusal is raised, since it says nothing about the repository."""
@@ -415,18 +439,18 @@ def branch_path(repository):
 def has_commit(github, repository):
     """A repository with no commit has a default branch in name only: the
     branch itself answers 404."""
-    return found(github, f"/repos/{repository['full_name']}/branches/{branch_path(repository)}")
+    return found(github, f"{repo_path(repository)}/branches/{branch_path(repository)}")
 
 
 def has_adopt_branch(github, repository):
     """matching-refs matches by prefix, so the ref is checked to be exactly
     sdlc/adopt and not a branch that merely starts so."""
-    refs = github.listed(f"/repos/{repository['full_name']}/git/matching-refs/heads/{ADOPT_BRANCH}")
+    refs = github.listed(f"{repo_path(repository)}/git/matching-refs/heads/{ADOPT_BRANCH}")
     return any(isinstance(ref, dict) and ref.get("ref") == ADOPT_REF for ref in refs)
 
 
 def is_adopted(github, repository):
-    return found(github, f"/repos/{repository['full_name']}/contents/{PROTOCOL_TEXT}")
+    return found(github, f"{repo_path(repository)}/contents/{PROTOCOL_TEXT}")
 
 
 def switch_word(answer):
@@ -444,7 +468,7 @@ def switch_word(answer):
 
 def opted_out(github, repository):
     try:
-        answer = github.call("GET", f"/repos/{repository['full_name']}/contents/{OPT_OUT}")
+        answer = github.call("GET", f"{repo_path(repository)}/contents/{OPT_OUT}")
     except GitHubError as refusal:
         if refusal.status == 404:
             return False
@@ -458,7 +482,7 @@ def was_declined(github, repository):
     the pull request was not merged (else as adopted), so the offer was
     closed on purpose; one such pull request is enough to know."""
     owner = repository["owner"]["login"]
-    path = f"/repos/{repository['full_name']}/pulls?state=closed&head={owner}:{ADOPT_BRANCH}&per_page=1"
+    path = f"{repo_path(repository)}/pulls?state=closed&head={owner}:{ADOPT_BRANCH}&per_page=1"
     return bool(github.listed(path))
 
 
@@ -473,7 +497,7 @@ def was_refused(github, repository, bot):
     rules refused its push, is still open. The run opens it once, so one
     page of the bot's open issues holds it."""
     creator = urllib.parse.quote(bot, safe="")
-    path = f"/repos/{repository['full_name']}/issues?state=open&creator={creator}&per_page={PER_PAGE}"
+    path = f"{repo_path(repository)}/issues?state=open&creator={creator}&per_page={PER_PAGE}"
     return any(is_refusal(issue) for issue in github.listed(path))
 
 
@@ -545,7 +569,7 @@ def classify_tree(tree):
 
 
 def read_tree(github, repository):
-    return github.call("GET", f"/repos/{repository['full_name']}/git/trees/{branch_path(repository)}?recursive=1")
+    return github.call("GET", f"{repo_path(repository)}/git/trees/{branch_path(repository)}?recursive=1")
 
 
 class Candidate(NamedTuple):

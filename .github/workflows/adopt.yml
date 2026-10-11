@@ -29,13 +29,14 @@ name: Adopt
 # or key here, which is the owner's to fix: the issue stays open and the
 # run ends red) from an account that did not install it. A form that
 # carries the installation's number and no name is resolved with the
-# App's own JWT: the installation's token, with metadata alone, lists the
-# repositories it reaches, and the one it holds is the request's, once
-# the author is read as its administrator; several, none, an installation
-# that is not this App's and an author who is not an administrator get
-# one answer, so a guessed number learns nothing, and the name, which no
-# issue typed, is masked here and never passed on: the adoption run gets
-# the ids and resolves it again for itself. GitHub's own
+# App's own JWT: the installation's token lists the repositories it
+# reaches, the one among them with no adoption yet (by the sweep's rules,
+# asked by id) is the request's once the author is read as its
+# administrator, and the adoption run gets the ids. None, several, an
+# installation that is not this App's and an author who is not an
+# administrator get one answer at one moment, and the name, which no
+# issue typed, is never read in this job, so nothing here can be masked
+# and nothing printed can differ: a guessed number learns nothing. GitHub's own
 # token, which may write only this repository's issues, posts every
 # answer. A refusal (scripts/refuse.sh) comments, closes the issue as not
 # planned and ends the run green; anything else that fails comments with
@@ -109,9 +110,10 @@ jobs:
           fi
 
       # The form came from the install: the installation's number and no
-      # name. Its token, with metadata alone, says which one repository it
-      # reaches and whether the author administers it; nothing of the
-      # repository is printed, and every refusal is the same one.
+      # name. Its token, reading contents and nothing more, says which one
+      # repository it reaches with no adoption yet and whether the author
+      # administers it, all by id; nothing of the repository is printed,
+      # and every refusal is the same one.
       - name: Resolve the installation's one repository
         id: resolve
         if: env.REFUSED != 'true' && steps.form.outputs.repository == ''
@@ -123,49 +125,62 @@ jobs:
           ISSUE_TOKEN: ${{ github.token }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          refusal="Nothing was done: the installation this form carried is not one of the OpenSpine SDLC App's, or it reaches more than one repository, or your account is not an administrator of the one it reaches. Open a new request with the form naming the repository as OWNER/NAME, as an administrator of it; this one is closed."
+          # Every refusal is one answer, in words and in time: the name is
+          # never learned here (the API is asked by id), so no mask exists
+          # in this job and nothing printed can differ; and each refusal
+          # waits for the same moment, so the step's length says nothing.
+          refusal="Nothing was done: the installation this form carried is not one of the OpenSpine SDLC App's, or it reaches no repository with no adoption yet, or several, or your account is not an administrator of the one it reaches. Open a new request with the form naming the repository as OWNER/NAME, as an administrator of it; this one is closed."
+          deadline=$((SECONDS + 20))
+          refuse_alike() {
+            sleep $((deadline > SECONDS ? deadline - SECONDS : 0))
+            bash start/scripts/refuse.sh "$refusal"
+          }
           accept="Accept: application/vnd.github+json"
           reply="$RUNNER_TEMP/reply"
           jwt="$(bash start/scripts/jwt.sh)"
           echo "::add-mask::$jwt"
           status="$(curl -sS -o "$reply" -w '%{http_code}' -X POST -H "Authorization: Bearer $jwt" -H "$accept" \
-            -d '{"permissions":{"metadata":"read"}}' "https://api.github.com/app/installations/$INSTALLATION/access_tokens")"
+            -d '{"permissions":{"contents":"read"}}' "https://api.github.com/app/installations/$INSTALLATION/access_tokens")"
           if [ "$status" != 201 ]; then
             app="$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $jwt" -H "$accept" https://api.github.com/app)"
             if [ "$app" != 200 ]; then
               bash start/scripts/refuse.sh --keep-open "Nothing was done yet: this front door's App is not working (its id or private key here is wrong, or GitHub did not answer), which is for the owner of this repository to put right; the run is $RUN. This issue stays open, and its run can be started again once that is done."
               exit 1
             fi
-            bash start/scripts/refuse.sh "$refusal"
+            refuse_alike
             exit 0
           fi
           token="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["token"])' "$reply")"
           echo "::add-mask::$token"
-          curl -sS -o "$reply" -H "Authorization: Bearer $token" -H "$accept" "https://api.github.com/installation/repositories?per_page=2"
-          python3 -c 'import json, sys
+          curl -sS -o "$reply" -H "Authorization: Bearer $token" -H "$accept" "https://api.github.com/installation/repositories?per_page=100"
+          # The one repository of the installation's with no adoption yet,
+          # by the sweep's own rules and by id, so a second repository under
+          # the same account is one press too; none or several is a refusal.
+          APP_TOKEN="$token" python3 -c 'import json, os, sys
+          sys.path.insert(0, "start/scripts")
+          import sweep
           data = json.load(open(sys.argv[1]))
           found = data.get("repositories") if isinstance(data, dict) else None
-          found = found if isinstance(found, list) else []
-          print(data.get("total_count", len(found)) if isinstance(data, dict) else 0)
-          if len(found) == 1:
-              print(found[0]["id"])
-              print(found[0]["full_name"])' "$reply" > "$RUNNER_TEMP/one"
-          count="$(sed -n 1p "$RUNNER_TEMP/one")"
+          found = [dict(r, by_id=True) for r in (found or []) if isinstance(r, dict) and "id" in r]
+          try:
+              free = sweep.unadopted(sweep.GitHub(os.environ["APP_TOKEN"]), found)
+          except sweep.GitHubError:
+              free = []
+          if len(free) == 1:
+              print(free[0]["id"])' "$reply" > "$RUNNER_TEMP/one" 2>/dev/null || : > "$RUNNER_TEMP/one"
+          repository_id="$(head -n 1 "$RUNNER_TEMP/one")"
           permission=none
-          if [ "$count" = 1 ]; then
-            full="$(sed -n 3p "$RUNNER_TEMP/one")"
-            echo "::add-mask::$full"
-            echo "::add-mask::${full%%/*}"
-            echo "::add-mask::${full#*/}"
-            permission="$(GH_TOKEN="$token" gh api "repos/$full/collaborators/$AUTHOR/permission" --jq .permission 2>/dev/null || echo none)"
+          case "$repository_id" in ""|*[!0-9]*) repository_id="" ;; esac
+          if [ -n "$repository_id" ]; then
+            permission="$(GH_TOKEN="$token" gh api "repositories/$repository_id/collaborators/$AUTHOR/permission" --jq .permission 2>/dev/null || echo none)"
           fi
           curl -sS -X DELETE -H "Authorization: Bearer $token" -H "$accept" https://api.github.com/installation/token -o /dev/null || true
           if [ "$permission" != admin ]; then
-            bash start/scripts/refuse.sh "$refusal"
+            refuse_alike
             exit 0
           fi
-          echo "repository_id=$(sed -n 2p "$RUNNER_TEMP/one")" >> "$GITHUB_OUTPUT"
-          echo "the installation reaches one repository, which the author administers; its name stays out of this log"
+          echo "repository_id=$repository_id" >> "$GITHUB_OUTPUT"
+          echo "the installation reaches one repository with no adoption yet, which the author administers; its name was not read here"
 
       # For the account alone, with metadata read: it fails only when that
       # account did not install the App, and says nothing about the

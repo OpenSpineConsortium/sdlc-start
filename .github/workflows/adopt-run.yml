@@ -134,11 +134,14 @@ jobs:
             echo "SOURCE=installation" >> "$GITHUB_ENV"
             echo "KIND_READ=true" >> "$GITHUB_ENV"
           fi
-          echo "REQUESTER=$REQUESTER_GIVEN" >> "$GITHUB_ENV"
           if [ -n "$REPOSITORY" ]; then
             named=public
           else
             named=masked
+            # The login is the issue's author, public there, but masked
+            # here so that the steps' headers read the same whether or
+            # not it is also the repository's owner.
+            [ -n "$REQUESTER_GIVEN" ] && echo "::add-mask::$REQUESTER_GIVEN"
             case "$INSTALLATION_ID" in ""|*[!0-9]*) echo "installation_id must be a number"; exit 1 ;; esac
             case "$REPOSITORY_ID" in ""|*[!0-9]*) echo "repository_id must be a number"; exit 1 ;; esac
             jwt="$(bash start/scripts/jwt.sh)"
@@ -162,6 +165,8 @@ jobs:
             exit 1
           fi
           sed 's/^repository=/TARGET=/; s/^owner=/OWNER=/; s/^name=/NAME=/' "$RUNNER_TEMP/named" >> "$GITHUB_ENV"
+          echo "REQUESTER=$REQUESTER_GIVEN" >> "$GITHUB_ENV"
+          echo "NAMED=$named" >> "$GITHUB_ENV"
           target="$(sed -n 's/^repository=//p' "$RUNNER_TEMP/named")"
           if [ "$named" = public ]; then
             echo "SAID=$target" >> "$GITHUB_ENV"
@@ -215,12 +220,14 @@ jobs:
           gh api "repos/$TARGET" --jq '"default_branch=" + .default_branch, "owner_type=" + .owner.type' > "$RUNNER_TEMP/target"
           cat "$RUNNER_TEMP/target" >> "$GITHUB_OUTPUT"
           branch="$(sed -n 's/^default_branch=//p' "$RUNNER_TEMP/target")"
-          # On the sweep's path the branch's name is the repository's too:
-          # masked, at the price of that word wherever else the log says
-          # it. The commit the checkout prints is not, and names nothing.
-          if [ "$SOURCE" = installation ]; then
+          # A repository given by ids keeps its branch's name too: masked,
+          # at the price of that word wherever else the log says it. The
+          # commit the checkout prints is not, and names nothing. The name
+          # goes into a URL as the sweep puts it, encoded.
+          if [ "$NAMED" = masked ]; then
             echo "::add-mask::$branch"
           fi
+          encoded="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$branch")"
           # The sweep names nobody: the requester is the owner of a user's
           # repository, or the first direct administrator of an
           # organization's, and the organization itself when none is
@@ -236,7 +243,7 @@ jobs:
             echo "::add-mask::$requester"
             echo "REQUESTER=$requester" >> "$GITHUB_ENV"
           fi
-          if ! gh api "repos/$TARGET/branches/$branch" --silent 2>/dev/null; then
+          if ! gh api "repos/$TARGET/branches/$encoded" --silent 2>/dev/null; then
             bash start/scripts/refuse.sh "Nothing was done: $SAID has no commit yet, and a pull request needs a branch to go into. Add a first commit (a README is enough), then open a new request with the form; this one is closed."
             exit 0
           fi
@@ -255,7 +262,7 @@ jobs:
           # overwrites nothing.
           mode="$MODE_GIVEN"
           if [ "$mode" = read ]; then
-            gh api "repos/$TARGET/git/trees/$branch?recursive=1" > "$RUNNER_TEMP/tree.json" 2>/dev/null || echo '{}' > "$RUNNER_TEMP/tree.json"
+            gh api "repos/$TARGET/git/trees/$encoded?recursive=1" > "$RUNNER_TEMP/tree.json" 2>/dev/null || echo '{}' > "$RUNNER_TEMP/tree.json"
             mode="$(python3 -c 'import json, sys; sys.path.insert(0, "start/scripts"); import sweep; print(sweep.classify_tree(json.load(open(sys.argv[1]))))' "$RUNNER_TEMP/tree.json")"
             echo "KIND_READ=true" >> "$GITHUB_ENV"
             echo "the kind was read from the tree: $mode"
@@ -329,7 +336,6 @@ jobs:
         if: env.REFUSED != 'true'
         env:
           TARGET: ${{ env.TARGET }}
-          AUTHOR: ${{ env.REQUESTER }}
           OWNER_TYPE: ${{ steps.target.outputs.owner_type }}
           DEFAULT_BRANCH: ${{ steps.target.outputs.default_branch }}
           METRICS: ${{ inputs.metrics }}
@@ -342,7 +348,7 @@ jobs:
             spec+=(--kind-read)
           fi
           python3 start/scripts/adopt.py apply --template template --target target \
-            --repo "$TARGET" --creator "$AUTHOR" --owner-type "$OWNER_TYPE" \
+            --repo "$TARGET" --creator "$REQUESTER" --owner-type "$OWNER_TYPE" \
             --default-branch "$DEFAULT_BRANCH" --mode "$MODE" --metrics "$METRICS" --source "$SOURCE" \
             --manifest "$RUNNER_TEMP/manifest.json" "${spec[@]}"
           python3 start/scripts/adopt.py body --title --manifest "$RUNNER_TEMP/manifest.json" > "$RUNNER_TEMP/title"
@@ -637,12 +643,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.target-token.outputs.token }}
           TARGET: ${{ env.TARGET }}
-          AUTHOR: ${{ env.REQUESTER }}
           OWNER_TYPE: ${{ steps.target.outputs.owner_type }}
           DEFAULT_BRANCH: ${{ steps.target.outputs.default_branch }}
         run: |
           mkdir "$RUNNER_TEMP/empty"
-          python3 - "$TARGET" "$OWNER_TYPE" "$AUTHOR" > "$RUNNER_TEMP/event.json" <<'EOF'
+          python3 - "$TARGET" "$OWNER_TYPE" "$REQUESTER" > "$RUNNER_TEMP/event.json" <<'EOF'
           import json, sys
           repo, owner_type, creator = sys.argv[1:]
           print(json.dumps({"repository": {"full_name": repo, "owner": {"type": owner_type}},
