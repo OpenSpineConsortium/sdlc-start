@@ -1,20 +1,16 @@
 name: Adopt
 
-# Turns an adoption request into a pull request in the requester's own
-# repository. The template, OpenSpineConsortium/sdlc-template, stays
-# internal to its enterprise, so nobody outside it can press "Use this
-# template"; this public repository is the front door instead. A person
-# installs the OpenSpine SDLC App on their repository and opens the form
-# .github/ISSUE_TEMPLATE/adopt.yml, which labels the issue adopt. This
-# workflow then reads the template with the App's token, runs
-# scripts/adopt.py on a checkout of their repository and opens the pull
-# request there as the App. In mode existing the protocol's page comes from
-# the public OpenSpineConsortium/sdlc-protocol at the release the template
-# vendors, since the template's own page names files only a copy of the
-# template has; in mode new the template's own init opens the issue "Set up
-# this project" there, as "Use this template" would. The files land in
-# their repository and are theirs to read; the template's repository, its
-# history, its issues and its other branches never leave the run.
+# Turns an adoption request made on this repository's form into a pull
+# request in the requester's own repository. The template,
+# OpenSpineConsortium/sdlc-template, stays internal to its enterprise, so
+# nobody outside it can press "Use this template"; this public repository
+# is the front door instead. A person installs the OpenSpine SDLC App on
+# their repository and either opens the form .github/ISSUE_TEMPLATE/adopt.yml,
+# which labels the issue adopt and starts this workflow, or does nothing
+# more and lets the sweep (sweep.yml) find the installation. This workflow
+# is the issue path: it reads the form, checks the author and the App's
+# reach, answers what it refuses, and then calls adopt-run.yml, which does
+# the adoption itself for both paths and whose header says how.
 #
 # Anyone can open an issue here, so everything the issue says is data: the
 # body reaches scripts/adopt.py parse through env:, never through an
@@ -25,61 +21,21 @@ name: Adopt
 # account, which is public, installed the App. With it the run asks for the
 # repository and for the author's permission there, both silenced, so a
 # repository the App does not reach reads the same as an author who is not
-# an administrator, and both get one answer. Only then is the token that
-# writes made, for that one repository, with the permissions the push, the
-# pull request, the labels and the setup issue need; an installation that
-# has not accepted the permission Workflows yet fails that mint and is told
-# so. When the first token cannot be made, a probe on the App's own account
-# tells a broken App (a wrong id or key here, which is the owner's to fix:
-# the issue stays open and the run ends red) from an account that did not
-# install it. The token for the template is read-only, made only after
-# those checks, used by one checkout and revoked at once, before anything
-# of the person's repository is read. That repository is checked out at
-# depth one and only its default branch, named as refs/heads/<name>: given
-# a bare name, checkout fetches, and prints, every branch and tag whose
-# name starts with it. The git steps keep their messages, which name
-# files, in a file of the run and out of this public log, and no step
-# prints the number of a pull request or an issue in the person's
-# repository. GitHub's own token, which may write only this repository's
-# issues, posts every answer. A refusal (scripts/refuse.sh) comments,
-# closes the issue as not planned and ends the run green; anything else
-# that fails comments with the run's link and leaves the issue open for
-# the owner. The trigger is opened alone: a refused request is opened
-# again with the form, never edited, and one run handles one issue at a
-# time; two requests for one repository at once are settled by the push
-# of the branch sdlc/adopt, which only one of them can make. Until the
-# owner sets the variable SDLC_APP_ID and the secret SDLC_APP_PRIVATE_KEY
-# (README.md, For the owner), every request is answered that the front
-# door is not set up yet, and stays open so its run can be started again
-# once it is; a request opened before the label adopt exists here carries
-# no label, starts no run and is never answered, so it has to be opened
-# again.
-#
-# The repository's settings, which the template's scripts/setup-repo.sh
-# applies from a clone, are applied in this run too, by a second App:
-# OpenSpine SDLC Setup, which holds Administration and nothing else, and
-# which the person installs on the repository for this one run and
-# uninstalls afterwards, since the main App must never hold that
-# permission on anyone's repository. Installing it is the person's
-# consent, so the form has no field for it. Its token is minted after the
-# push, which settles two requests for one repository, and only for that
-# repository; scripts/setup.py applies the settings with it and writes a
-# report, the token is revoked at once, and scripts/adopt.py body renders
-# the report into the pull request, so the person reads there what was
-# set and what is left. Where the owner has not given this repository
-# SDLC_SETUP_APP_ID and SDLC_SETUP_APP_PRIVATE_KEY yet, the pull request
-# says so and the steps by hand stand. Where the mint fails, a probe on
-# the owner's own installation of the Setup App (on this repository, with
-# metadata read) tells the person not installing it from the front
-# door's own Setup App not working (a wrong id or key here, or no
-# installation on this repository): the first is the pull request's to
-# say; the second is told to the owner in an issue of this repository,
-# opened once and commented on after, since a red run is reported only to
-# the person who opened the request. A settings step that dies before its
-# report leaves a pull request that says so, and a run that fails after
-# the token was made says the settings may be applied. GitHub's answers
-# about the settings go to the report and not to this public log, which
-# gets one fixed line per setting.
+# an administrator, and both get one answer. When the first token cannot
+# be made, a probe on the App's own account tells a broken App (a wrong id
+# or key here, which is the owner's to fix: the issue stays open and the
+# run ends red) from an account that did not install it. GitHub's own
+# token, which may write only this repository's issues, posts every
+# answer. A refusal (scripts/refuse.sh) comments, closes the issue as not
+# planned and ends the run green; anything else that fails comments with
+# the run's link and leaves the issue open for the owner. The trigger is
+# opened alone: a refused request is opened again with the form, never
+# edited, and one run handles one issue at a time. Until the owner sets
+# the variable SDLC_APP_ID and the secret SDLC_APP_PRIVATE_KEY (README.md,
+# For the owner), every request is answered that the front door is not
+# set up yet, and stays open so its run can be started again once it is;
+# a request opened before the label adopt exists here carries no label,
+# starts no run and is never answered, so it has to be opened again.
 
 on:
   issues:
@@ -94,12 +50,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  adopt:
+  request:
     if: contains(github.event.issue.labels.*.name, 'adopt')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     env:
       ISSUE: ${{ github.event.issue.number }}
+    outputs:
+      refused: ${{ steps.verdict.outputs.refused }}
+      repository: ${{ steps.form.outputs.repository }}
+      mode: ${{ steps.form.outputs.mode }}
+      metrics: ${{ steps.form.outputs.metrics }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -185,461 +146,32 @@ jobs:
             bash start/scripts/refuse.sh "Nothing was done: the OpenSpine SDLC App is not installed on $TARGET, or not given that repository, or your account is not one of its administrators. Install the App at https://github.com/apps/openspine-sdlc/installations/new and choose the repository, then open a new request with the form as an administrator of it; this one is closed."
           fi
 
-      # The token that writes, for this one repository, now that the author
-      # is known to administer it: contents for the push, pull-requests for
-      # the pull request, issues for the labels and the setup issue,
-      # workflows because the pull request adds files under
-      # .github/workflows, and metadata to read the rest. It fails when the
-      # installation has not accepted one of them, which the next step
-      # answers.
-      - uses: actions/create-github-app-token@v1
-        id: target-token
-        if: env.REFUSED != 'true'
-        continue-on-error: true
-        with:
-          app-id: ${{ vars.SDLC_APP_ID }}
-          private-key: ${{ secrets.SDLC_APP_PRIVATE_KEY }}
-          owner: ${{ steps.form.outputs.owner }}
-          repositories: ${{ steps.form.outputs.name }}
-          permission-contents: write
-          permission-pull-requests: write
-          permission-issues: write
-          permission-workflows: write
-          permission-metadata: read
-
-      - name: Read the repository, and stop when it cannot take the pull request
-        id: target
-        if: env.REFUSED != 'true'
-        env:
-          TOKEN_OUTCOME: ${{ steps.target-token.outcome }}
-          GH_TOKEN: ${{ steps.target-token.outputs.token }}
-          TARGET: ${{ steps.form.outputs.repository }}
-          OWNER: ${{ steps.form.outputs.owner }}
-          ISSUE_TOKEN: ${{ github.token }}
-        run: |
-          if [ "$TOKEN_OUTCOME" != success ]; then
-            bash start/scripts/refuse.sh "Nothing was done: the App's installation for $TARGET does not grant everything the pull request needs. The usual reason is that it has not yet accepted the permission Workflows: Read and write, which a pull request that adds files under .github/workflows needs; an owner of the account accepts it on the page of installed GitHub Apps, OpenSpine SDLC, Review request. Then open a new request with the form; this one is closed."
-            exit 0
-          fi
-          gh api "repos/$TARGET" --jq '"default_branch=" + .default_branch, "owner_type=" + .owner.type' > "$RUNNER_TEMP/target"
-          cat "$RUNNER_TEMP/target" >> "$GITHUB_OUTPUT"
-          branch="$(sed -n 's/^default_branch=//p' "$RUNNER_TEMP/target")"
-          if ! gh api "repos/$TARGET/branches/$branch" --silent 2>/dev/null; then
-            bash start/scripts/refuse.sh "Nothing was done: $TARGET has no commit yet, and a pull request needs a branch to go into. Add a first commit (a README is enough), then open a new request with the form; this one is closed."
-            exit 0
-          fi
-          taken="$(gh api "repos/$TARGET/git/matching-refs/heads/sdlc/adopt" --jq '[.[] | select(.ref == "refs/heads/sdlc/adopt")] | length')"
-          if [ "$taken" != 0 ]; then
-            open="$(gh api "repos/$TARGET/pulls?state=open&head=$OWNER:sdlc/adopt" --jq 'length')"
-            if [ "$open" != 0 ]; then
-              bash start/scripts/refuse.sh "Nothing was done: $TARGET already has the adoption pull request open, from the branch sdlc/adopt (https://github.com/$TARGET/pulls). Review and merge that one, or close it and delete its branch sdlc/adopt before a new request; this one is closed."
-            else
-              bash start/scripts/refuse.sh "Nothing was done: $TARGET already has a branch sdlc/adopt, from an earlier request. Delete it at https://github.com/$TARGET/branches, then open a new request with the form; this one is closed."
-            fi
-          fi
-
-      # Read-only and short-lived: revoked by the step after the checkout,
-      # which runs whatever happens, so the post step has nothing to revoke.
-      - uses: actions/create-github-app-token@v1
-        id: template-token
-        if: env.REFUSED != 'true'
-        with:
-          app-id: ${{ vars.SDLC_APP_ID }}
-          private-key: ${{ secrets.SDLC_APP_PRIVATE_KEY }}
-          owner: OpenSpineConsortium
-          repositories: sdlc-template
-          permission-contents: read
-          skip-token-revoke: true
-
-      - uses: actions/checkout@v7
-        if: env.REFUSED != 'true'
-        with:
-          repository: OpenSpineConsortium/sdlc-template
-          token: ${{ steps.template-token.outputs.token }}
-          path: template
-          persist-credentials: false
-          show-progress: false
-
-      - name: Revoke the template's token
-        if: always() && steps.template-token.outputs.token != ''
-        env:
-          GH_TOKEN: ${{ steps.template-token.outputs.token }}
-        run: |
-          gh api --method DELETE installation/token --silent \
-            || echo "::warning::the template's token could not be revoked; it expires within the hour"
-
-      # The release the template vendors is the first line of its
-      # tools/VENDORED, "sdlc-protocol <version> <commit>"; the library is
-      # public, so the clone needs no token. The page it gives apply is the
-      # protocol in prose with no placeholder, which names nothing only a
-      # copy of the template has. The release stays out of this log, since
-      # that line is the template's.
-      - name: Fetch the protocol's text at the release the template vendors
-        if: env.REFUSED != 'true' && steps.form.outputs.mode == 'existing'
-        run: |
-          read -r library _ commit < template/tools/VENDORED || true
-          if [ "$library" != sdlc-protocol ] || ! printf '%s' "$commit" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "the template's tools/VENDORED does not name a release of sdlc-protocol"
-            exit 1
-          fi
-          git clone --quiet https://github.com/OpenSpineConsortium/sdlc-protocol.git "$RUNNER_TEMP/protocol"
-          git -C "$RUNNER_TEMP/protocol" checkout --quiet "$commit"
-          test -f "$RUNNER_TEMP/protocol/spec/PROTOCOL.md"
-          echo "the protocol's text is at hand, at the release the template vendors"
-
-      # The ref stays qualified: given a bare name such as main, checkout
-      # fetches, and prints, every branch and tag of the repository whose
-      # name starts with it; given refs/heads/<name> it fetches that one
-      # branch.
-      - uses: actions/checkout@v7
-        if: env.REFUSED != 'true'
-        with:
-          repository: ${{ steps.form.outputs.repository }}
-          ref: refs/heads/${{ steps.target.outputs.default_branch }}
-          token: ${{ steps.target-token.outputs.token }}
-          path: target
-          persist-credentials: false
-          show-progress: false
-
-      - name: Stage the adoption and write the pull request's title
-        if: env.REFUSED != 'true'
-        env:
-          TARGET: ${{ steps.form.outputs.repository }}
-          AUTHOR: ${{ github.event.issue.user.login }}
-          OWNER_TYPE: ${{ steps.target.outputs.owner_type }}
-          DEFAULT_BRANCH: ${{ steps.target.outputs.default_branch }}
-          MODE: ${{ steps.form.outputs.mode }}
-          METRICS: ${{ steps.form.outputs.metrics }}
-        run: |
-          spec=()
-          if [ "$MODE" = existing ]; then
-            spec=(--protocol-spec "$RUNNER_TEMP/protocol/spec/PROTOCOL.md")
-          fi
-          python3 start/scripts/adopt.py apply --template template --target target \
-            --repo "$TARGET" --creator "$AUTHOR" --owner-type "$OWNER_TYPE" \
-            --default-branch "$DEFAULT_BRANCH" --mode "$MODE" --metrics "$METRICS" \
-            --manifest "$RUNNER_TEMP/manifest.json" "${spec[@]}"
-          python3 start/scripts/adopt.py body --title --manifest "$RUNNER_TEMP/manifest.json" > "$RUNNER_TEMP/title"
-
-      # The commit is the App's, under its bot's name and noreply address, so
-      # the person's history says who made it. The header is the one
-      # actions/checkout leaves when it keeps its credentials, masked before
-      # use; the remote URL never holds the token. git's messages name files
-      # and commits, so they go to a file of the run and not to this public
-      # log, which gets a fixed line instead.
-      - name: Commit on sdlc/adopt and push it as the App
-        if: env.REFUSED != 'true'
-        env:
-          GH_TOKEN: ${{ steps.target-token.outputs.token }}
-          SLUG: ${{ steps.target-token.outputs.app-slug }}
-          TARGET: ${{ steps.form.outputs.repository }}
-          ISSUE_TOKEN: ${{ github.token }}
-        run: |
-          bot="${SLUG}[bot]"
-          bot_id="$(gh api "users/$bot" --jq .id)"
-          refuse="$GITHUB_WORKSPACE/start/scripts/refuse.sh"
-          said="$RUNNER_TEMP/git-said"
-          cd target
-          git config user.name "$bot"
-          git config user.email "${bot_id}+${bot}@users.noreply.github.com"
-          git switch --quiet -c sdlc/adopt
-          # --force: a file the adoption wrote goes in even where the
-          # repository's .gitignore would leave it out, so the pull request
-          # holds what its body lists; the checkout is fresh, so nothing
-          # else is untracked. safecrlf off: with a .gitattributes of theirs
-          # git would otherwise name every file whose line endings it would
-          # convert.
-          if ! git -c core.safecrlf=false add --all --force 2>> "$said"; then
-            echo "git add failed; its message is kept out of this public log"
-            exit 1
-          fi
-          if git diff --cached --quiet; then
-            bash "$refuse" "Nothing was done: $TARGET has every file this adoption brings already; this issue is closed."
-            exit 0
-          fi
-          printf '%s\n\n%s\n' "$(cat "$RUNNER_TEMP/title")" \
-            "Opened by the OpenSpine SDLC App at the request of an administrator of this repository; the pull request lists every file and what is left to do." \
-            > "$RUNNER_TEMP/message"
-          if ! git commit --quiet --file "$RUNNER_TEMP/message" > /dev/null 2>> "$said"; then
-            echo "git commit failed; its message is kept out of this public log"
-            exit 1
-          fi
-          basic="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          echo "::add-mask::$basic"
-          if ! git -c http.extraheader="AUTHORIZATION: basic $basic" push --quiet origin HEAD:refs/heads/sdlc/adopt > /dev/null 2>> "$said"; then
-            # Two requests for one repository at once: the first push made
-            # the branch, and this one was turned away as not fast-forward.
-            taken="$(gh api "repos/$TARGET/git/matching-refs/heads/sdlc/adopt" --jq '[.[] | select(.ref == "refs/heads/sdlc/adopt")] | length' 2>/dev/null || echo 0)"
-            if [ "$taken" != 0 ]; then
-              bash "$refuse" "Nothing was done: another request for $TARGET pushed the branch sdlc/adopt while this one ran, and its pull request is the one to review (https://github.com/$TARGET/pulls); this issue is closed."
-            else
-              bash "$refuse" "Nothing was done: GitHub refused the push of the branch sdlc/adopt to $TARGET; a ruleset or a branch protection there may stand in its way. Let the App push that branch, then open a new request with the form; this one is closed."
-            fi
-          fi
-
-      # Only whether the Setup App's key is set reaches the shell, never
-      # the key; without the pair, the pull request says the front door
-      # has no Setup App yet and the steps by hand stand.
-      - name: Say whether this front door has the Setup App
-        if: env.REFUSED != 'true'
-        env:
-          SETUP_ID: ${{ vars.SDLC_SETUP_APP_ID }}
-          SETUP_KEY_SET: ${{ secrets.SDLC_SETUP_APP_PRIVATE_KEY != '' }}
-        run: |
-          if [ -n "$SETUP_ID" ] && [ "$SETUP_KEY_SET" = true ]; then
-            echo "SETUP_APP=present" >> "$GITHUB_ENV"
-            echo "the front door has the Setup App"
-          else
-            echo "SETUP_APP=absent" >> "$GITHUB_ENV"
-            echo "the front door has no Setup App yet; the settings are left to the pull request's next steps"
-          fi
-
-      # For this one repository, with Administration, which the settings
-      # need and which the main App never holds. It fails where the person
-      # did not install the Setup App on the repository, which the report
-      # says once the probe below has ruled out the App itself; the token
-      # is revoked by the step after the settings, so the post step has
-      # nothing to revoke.
-      - uses: actions/create-github-app-token@v1
-        id: setup-token
-        if: env.REFUSED != 'true' && env.SETUP_APP == 'present'
-        continue-on-error: true
-        with:
-          app-id: ${{ vars.SDLC_SETUP_APP_ID }}
-          private-key: ${{ secrets.SDLC_SETUP_APP_PRIVATE_KEY }}
-          owner: ${{ steps.form.outputs.owner }}
-          repositories: ${{ steps.form.outputs.name }}
-          permission-administration: write
-          permission-metadata: read
-          skip-token-revoke: true
-
-      # Only after that mint failed, on the owner's own installation of
-      # the Setup App, which is on this repository and nothing else, with
-      # metadata read: a failure here is the Setup App's id or key, not the
-      # requester, and the pull request and the run's end say so.
-      - uses: actions/create-github-app-token@v1
-        id: setup-probe
-        if: env.REFUSED != 'true' && env.SETUP_APP == 'present' && steps.setup-token.outcome == 'failure'
-        continue-on-error: true
-        with:
-          app-id: ${{ vars.SDLC_SETUP_APP_ID }}
-          private-key: ${{ secrets.SDLC_SETUP_APP_PRIVATE_KEY }}
-          owner: OpenSpineConsortium
-          repositories: sdlc-start
-          permission-metadata: read
-
-      # The ruleset comes from the template's own file, so the settings
-      # have one source. The report, GitHub's words included, goes to the
-      # pull request in the person's repository; this log gets one fixed
-      # line per setting. The step never fails the request: the pull
-      # request is the place that says what happened, and a step that
-      # dies before writing the report leaves the pull request's text
-      # without its section, which the next step says.
-      - name: Apply the repository's settings where the Setup App is installed
-        if: env.REFUSED != 'true'
-        continue-on-error: true
-        env:
-          SETUP_OUTCOME: ${{ steps.setup-token.outcome }}
-          PROBE_OUTCOME: ${{ steps.setup-probe.outcome }}
-          GH_TOKEN: ${{ steps.setup-token.outputs.token }}
-          TARGET: ${{ steps.form.outputs.repository }}
-          MODE: ${{ steps.form.outputs.mode }}
-        run: |
-          if [ "$SETUP_APP" = present ] && [ "$SETUP_OUTCOME" = success ]; then
-            python3 start/scripts/setup.py apply --repo "$TARGET" --mode "$MODE" \
-              --ruleset template/docs/setup/ruleset-main.json --report "$RUNNER_TEMP/settings.json"
-          else
-            if [ "$SETUP_APP" != present ]; then
-              why=not-set-up
-            elif [ "$PROBE_OUTCOME" = success ]; then
-              why=not-installed
-            else
-              why=front-door-broken
-            fi
-            python3 start/scripts/setup.py skip --why "$why" --mode "$MODE" --report "$RUNNER_TEMP/settings.json"
-          fi
-          python3 - "$RUNNER_TEMP/settings.json" >> "$GITHUB_ENV" <<'EOF'
-          import json, sys
-          print("SETTINGS=" + json.load(open(sys.argv[1]))["outcome"])
-          EOF
-
-      - name: Revoke the Setup App's token
-        if: always() && steps.setup-token.outputs.token != ''
-        env:
-          GH_TOKEN: ${{ steps.setup-token.outputs.token }}
-        run: |
-          gh api --method DELETE installation/token --silent \
-            || echo "::warning::the Setup App's token could not be revoked; it expires within the hour"
-
-      # A settings step that died before its report leaves a report that
-      # says so, since the Setup App's token may have applied some of them.
-      - name: Write the pull request's text
-        if: env.REFUSED != 'true'
-        env:
-          MODE: ${{ steps.form.outputs.mode }}
-        run: |
-          if [ ! -f "$RUNNER_TEMP/settings.json" ]; then
-            echo "::warning::the settings step wrote no report; the pull request says so"
-            python3 start/scripts/setup.py skip --why not-reported --mode "$MODE" --report "$RUNNER_TEMP/settings.json"
-            echo "SETTINGS=not-reported" >> "$GITHUB_ENV"
-          fi
-          python3 start/scripts/adopt.py body --manifest "$RUNNER_TEMP/manifest.json" \
-            --settings "$RUNNER_TEMP/settings.json" > "$RUNNER_TEMP/body.md"
-
-      # board.yml keeps the branch board as one commit of its own and
-      # rewrites it in place; metrics.yml refuses to write a branch metrics
-      # that holds files it did not write. A branch of theirs by either
-      # name is named in the pull request, before anyone merges, through
-      # silenced lookups: whether one exists never reaches this log.
-      - name: Say in the pull request when a branch its workflows write exists already
-        if: env.REFUSED != 'true'
-        env:
-          GH_TOKEN: ${{ steps.target-token.outputs.token }}
-          TARGET: ${{ steps.form.outputs.repository }}
-        run: |
-          python3 - "$RUNNER_TEMP/manifest.json" > "$RUNNER_TEMP/branches" <<'EOF'
-          import json, sys
-          manifest = json.load(open(sys.argv[1]))
-          written = set(manifest["added"]) | set(manifest["replaced"])
-          for branch in ("board", "metrics"):
-              if f".github/workflows/{branch}.yml" in written:
-                  print(branch)
-          EOF
-          : > "$RUNNER_TEMP/taken.md"
-          while read -r branch; do
-            gh api "repos/$TARGET/branches/$branch" --silent 2>/dev/null || continue
-            case "$branch" in
-              board) does="keeps that branch as one commit of its own and rewrites it in place, so what it holds now would be lost at the first run after the merge" ;;
-              *) does="refuses to write that branch while it holds files it did not write, so nothing would be shared" ;;
-            esac
-            printf '\nThis repository already has a branch `%s`, which holds files the workflow `.github/workflows/%s.yml` in this pull request did not write. That workflow %s. Rename that branch before merging, or close this pull request.\n' \
-              "$branch" "$branch" "$does" >> "$RUNNER_TEMP/taken.md"
-          done < "$RUNNER_TEMP/branches"
-          if [ -s "$RUNNER_TEMP/taken.md" ]; then
-            printf '\n## A branch of yours the workflows write\n' >> "$RUNNER_TEMP/body.md"
-            cat "$RUNNER_TEMP/taken.md" >> "$RUNNER_TEMP/body.md"
-          fi
-
-      - name: Open the pull request
-        if: env.REFUSED != 'true'
-        env:
-          GH_TOKEN: ${{ steps.target-token.outputs.token }}
-          TARGET: ${{ steps.form.outputs.repository }}
-          DEFAULT_BRANCH: ${{ steps.target.outputs.default_branch }}
-        run: |
-          cd target
-          gh pr create --repo "$TARGET" --base "$DEFAULT_BRANCH" --head sdlc/adopt \
-            --title "$(cat "$RUNNER_TEMP/title")" --body-file "$RUNNER_TEMP/body.md" > "$RUNNER_TEMP/pull-request"
-          echo "opened"
-
-      # From the template's own list in tools/template_init.py: mode new
-      # makes all of them, as template-init would; mode existing leaves out
-      # team mode's, whose workflows it does not bring. A label that exists
-      # is fine, and a label that fails, or a list that cannot be read,
-      # costs a warning, not the request.
-      - name: Make the labels the board reads
-        if: env.REFUSED != 'true'
-        env:
-          GH_TOKEN: ${{ steps.target-token.outputs.token }}
-          TARGET: ${{ steps.form.outputs.repository }}
-          MODE: ${{ steps.form.outputs.mode }}
-        run: |
-          if ! python3 start/scripts/adopt.py labels --template template --mode "$MODE" > "$RUNNER_TEMP/labels" 2> "$RUNNER_TEMP/labels-said"; then
-            echo "::warning::the board's labels could not be read from the template, so none was made: $(tail -n 1 "$RUNNER_TEMP/labels-said")"
-            : > "$RUNNER_TEMP/labels"
-          fi
-          while IFS=$'\t' read -r name color description; do
-            if answer="$(gh label create "$name" --repo "$TARGET" --color "$color" --description "$description" 2>&1)"; then
-              echo "label $name: created"
-            elif printf '%s' "$answer" | grep -q "already exists"; then
-              echo "label $name: exists"
-            else
-              echo "::warning::label $name was not made: $answer"
-            fi
-          done < "$RUNNER_TEMP/labels"
-
-      # Mode new: the template's own init opens the issue "Set up this
-      # project" in the repository, as "Use this template" would, since the
-      # copy's README and setup pages send its owner to it. It runs on an
-      # empty folder, so it fills nothing and only opens the issue, with the
-      # event in the shape scripts/adopt.py gives it. A failure costs a
-      # warning and a line in the answer, not the request; the issue's
-      # number stays out of the log.
-      - name: Open the setup issue in a new repository
-        if: env.REFUSED != 'true' && steps.form.outputs.mode == 'new'
-        env:
-          GITHUB_TOKEN: ${{ steps.target-token.outputs.token }}
-          TARGET: ${{ steps.form.outputs.repository }}
-          AUTHOR: ${{ github.event.issue.user.login }}
-          OWNER_TYPE: ${{ steps.target.outputs.owner_type }}
-          DEFAULT_BRANCH: ${{ steps.target.outputs.default_branch }}
-        run: |
-          mkdir "$RUNNER_TEMP/empty"
-          python3 - "$TARGET" "$OWNER_TYPE" "$AUTHOR" > "$RUNNER_TEMP/event.json" <<'EOF'
-          import json, sys
-          repo, owner_type, creator = sys.argv[1:]
-          print(json.dumps({"repository": {"full_name": repo, "owner": {"type": owner_type}},
-                            "sender": {"type": "User", "login": creator}}))
-          EOF
-          if python3 -B template/tools/template_init.py --repo "$TARGET" --default-branch "$DEFAULT_BRANCH" \
-               --root "$RUNNER_TEMP/empty" --event "$RUNNER_TEMP/event.json" --open-issue > "$RUNNER_TEMP/init-said" 2>&1; then
-            echo "SETUP_ISSUE=opened" >> "$GITHUB_ENV"
-            echo "the issue \"Set up this project\" is open in the repository"
-          else
-            echo "SETUP_ISSUE=missing" >> "$GITHUB_ENV"
-            echo "::warning::the issue \"Set up this project\" could not be opened in the repository: $(tail -n 1 "$RUNNER_TEMP/init-said")"
-          fi
-
-      - name: Answer the request and close it
-        if: env.REFUSED != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TARGET: ${{ steps.form.outputs.repository }}
-          MODE: ${{ steps.form.outputs.mode }}
-          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          issue=""
-          case "$MODE:${SETUP_ISSUE:-}" in
-            new:opened) issue=" The issue \"Set up this project\" is open there too, as the copy's README expects." ;;
-            new:*) issue=" The issue \"Set up this project\" could not be opened there; the pull request's next steps and its docs/setup/owner-checklist.md stand in for it." ;;
-          esac
-          settings=""
-          case "${SETTINGS:-}" in
-            applied|not-reported) settings=" The pull request's section Settings says what the Setup App could do for the repository's settings; uninstall that App now, since that was its one job." ;;
-          esac
-          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Done: the pull request is open in $TARGET, from the branch sdlc/adopt: https://github.com/$TARGET/pulls. Read it, then merge it; it lists every file it brings and the steps that are left.$issue$settings This issue is closed."
-          gh issue close "$ISSUE" --repo "$GITHUB_REPOSITORY" --reason completed
-          # The front door's own Setup App not working is the owner's to
-          # fix, and a red run is reported only to the person who opened
-          # the request, so the owner is told in an issue here: one, opened
-          # the first time and commented on after.
-          if [ "${SETTINGS:-}" = front-door-broken ]; then
-            title="Setup App of this front door is not working"
-            text="A request's run could not make the Setup App's token for the repository, and neither could the probe on this repository's own installation of it, so the variable SDLC_SETUP_APP_ID or the secret SDLC_SETUP_APP_PRIVATE_KEY here is wrong, the Setup App is not installed on this repository, or GitHub did not answer (README.md, For the owner, steps 7 and 8). The request was answered without the settings; the run is $RUN."
-            echo "::error::$text"
-            number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$title\"" --json number,title \
-              --jq '[.[] | select(.title == "Setup App of this front door is not working")][0].number // empty')"
-            if [ -n "$number" ]; then
-              gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "$text"
-            else
-              gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$text"
-            fi
-          fi
+      # What the second job reads: a refusal here means nothing to adopt.
+      - name: Say whether the request goes on
+        id: verdict
+        if: always()
+        run: echo "refused=${REFUSED:-false}" >> "$GITHUB_OUTPUT"
 
       # Not after a refusal, which said what was wrong already; that holds
       # for the one about a broken App, which ends the run red on purpose.
-      # A run that had the Setup App's token may have applied settings
-      # before it stopped, and says so.
       - name: Say so when something failed
         if: failure() && env.REFUSED != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          SETUP_MINTED: ${{ steps.setup-token.outcome }}
-          TARGET: ${{ steps.form.outputs.repository }}
         run: |
-          settings=""
-          if [ "$SETUP_MINTED" = success ]; then
-            settings=" This run had made the Setup App's token before it stopped, so some of the repository's settings may be applied: review https://github.com/$TARGET/settings/rules and https://github.com/$TARGET/settings, and uninstall the Setup App now."
-          fi
-          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Something went wrong while handling this request, and it stopped; the run is $RUN. This issue stays open for the owner of this repository to look at. If the run pushed a branch sdlc/adopt to your repository before it stopped, delete that branch before a new request.$settings"
+          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Something went wrong while handling this request, and it stopped; the run is $RUN. This issue stays open for the owner of this repository to look at."
+
+  # The adoption itself, shared with the sweep; the secrets it needs are
+  # this repository's own.
+  adopt:
+    needs: request
+    if: needs.request.result == 'success' && needs.request.outputs.refused != 'true'
+    uses: ./.github/workflows/adopt-run.yml
+    with:
+      repository: ${{ needs.request.outputs.repository }}
+      mode: ${{ needs.request.outputs.mode }}
+      metrics: ${{ needs.request.outputs.metrics }}
+      requester: ${{ github.event.issue.user.login }}
+      issue: ${{ github.event.issue.number }}
+    secrets: inherit

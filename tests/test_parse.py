@@ -79,6 +79,24 @@ class GoodForms(unittest.TestCase):
         ])
 
 
+class TheNameCommand(unittest.TestCase):
+    """The sweep's path brings no form; the name it brings is checked the
+    way the form's would be and printed in parse's shape."""
+
+    def test_a_name_github_allows(self):
+        code, out, err = run(["name", "Octo-Org/my.project_2"])
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(out.splitlines(), ["repository=Octo-Org/my.project_2", "owner=Octo-Org", "name=my.project_2"])
+
+    def test_a_name_that_is_not_one_or_is_the_front_doors_own(self):
+        for repository in ("a/b; rm -rf /", "https://github.com/octo-org/widget", "OpenSpineConsortium/sdlc-start", ""):
+            with self.subTest(repository=repository):
+                code, out, err = run(["name", repository])
+                self.assertEqual((code, out), (1, ""))
+                self.assertEqual(len(err.splitlines()), 1)
+                self.assertNotIn("rm -rf", err)
+
+
 class BadForms(unittest.TestCase):
     def refused(self, body, quoted=None):
         with self.assertRaises(adopt.FormError) as caught:

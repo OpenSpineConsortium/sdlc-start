@@ -13,6 +13,8 @@
 # the repository only after scripts/adopt.py parse has checked the name.
 # Needs ISSUE_TOKEN (the workflow's GITHUB_TOKEN, which may write this
 # repository's issues), ISSUE (the issue's number) and GITHUB_REPOSITORY.
+# On the sweep's path there is no issue: ISSUE is empty, nothing is
+# posted, and the refusal is the log's line and REFUSED alone.
 #
 # Usage: bash scripts/refuse.sh [--keep-open] MESSAGE
 set -eu
@@ -24,9 +26,11 @@ if [ "${1:-}" = "--keep-open" ]; then
 fi
 message="${1:?usage: refuse.sh [--keep-open] MESSAGE}"
 
-GH_TOKEN="$ISSUE_TOKEN" gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "$message"
-if [ "$keep_open" = false ]; then
-  GH_TOKEN="$ISSUE_TOKEN" gh issue close "$ISSUE" --repo "$GITHUB_REPOSITORY" --reason "not planned"
+if [ -n "${ISSUE:-}" ]; then
+  GH_TOKEN="$ISSUE_TOKEN" gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "$message"
+  if [ "$keep_open" = false ]; then
+    GH_TOKEN="$ISSUE_TOKEN" gh issue close "$ISSUE" --repo "$GITHUB_REPOSITORY" --reason "not planned"
+  fi
 fi
 echo "REFUSED=true" >> "$GITHUB_ENV"
 echo "refused: $message"
