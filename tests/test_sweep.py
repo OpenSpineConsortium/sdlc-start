@@ -39,8 +39,8 @@ PERMISSIONS = {"contents": "write", "issues": "write", "pull_requests": "write",
 NOW = 1_728_000_000
 # Long before NOW: no installation is fresh unless a test dates it so.
 INSTALLED = "2024-01-01T00:00:00Z"
-SLUG = "openspine-sdlc"
-BOT = "openspine-sdlc%5Bbot%5D"
+SLUG = "openspine-symphony"
+BOT = "openspine-symphony%5Bbot%5D"
 
 
 def moment(seconds_before_now):
@@ -219,7 +219,7 @@ class Sweep(unittest.TestCase):
 
     def test_reasons_are_listed_in_alphabetical_order_with_their_counts(self):
         repositories = [repository("octo-org/a", 1, archived=True), repository("octo-org/b", 2, archived=True),
-                        repository("OpenSpineConsortium/sdlc-start", 3)]
+                        repository("OpenSpineConsortium/symphony-start", 3)]
         _, _, out, _ = self.run_sweep(FakeGitHub(repositories=repositories))
         self.assertEqual(out, "sweep: 1 installation, 3 repositories, 0 candidates, 3 skipped (2 archived, 1 own)\n")
 
@@ -234,7 +234,7 @@ class Sweep(unittest.TestCase):
     # -- every skip --
 
     def test_the_organizations_own_repositories_are_skipped_without_a_call(self):
-        own = repository("OpenSpineConsortium/sdlc-template", 9)
+        own = repository("OpenSpineConsortium/symphony-template", 9)
         github = FakeGitHub(repositories=[own])
         _, written, out, _ = self.run_sweep(github)
         self.assertEqual(written, "")

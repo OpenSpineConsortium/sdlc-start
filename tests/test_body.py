@@ -15,7 +15,7 @@ from pathlib import Path
 
 from trees import SPEC, THEIR_FILES, adopt, apply, make_checkout, make_target, make_template, run, write
 
-PRIVATE_LINK = "github.com/OpenSpineConsortium/sdlc-template"
+PRIVATE_LINK = "github.com/OpenSpineConsortium/symphony-template"
 NO_GIT = {rel: text for rel, text in THEIR_FILES.items() if not rel.startswith(".git/")}
 RULES = "https://github.com/octo-org/widget/settings/rules"
 ALL_DONE = {"ruleset": "done", "toggles": "done", "secret_scanning": "done", "push_protection": "done"}
@@ -76,9 +76,9 @@ class Body(unittest.TestCase):
         self.assertIn("No file of yours is overwritten", body)
         self.assertIn("gains the section \"How work is claimed\"", body)
         self.assertIn("gains `extraKnownMarketplaces`, which names the marketplace"
-                      " OpenSpineConsortium/sdlc-marketplace, and `enabledPlugins`, which enables its plugin"
-                      " `symphony@sdlc-marketplace`; every key it had stays.", body)
-        self.assertIn("claude plugin install symphony@sdlc-marketplace --scope project", body)
+                      " OpenSpineConsortium/symphony-marketplace, and `enabledPlugins`, which enables its plugin"
+                      " `symphony@symphony-marketplace`; every key it had stays.", body)
+        self.assertIn("claude plugin install symphony@symphony-marketplace --scope project", body)
         self.assertIn("https://github.com/octo-org/widget/settings/rules", body)
         self.assertIn("Never target `board`, which the workflows force-push", body)
         self.assertIn("renders the board at https://github.com/octo-org/widget/blob/board/STATE.md", body)
@@ -92,10 +92,10 @@ class Body(unittest.TestCase):
         self.assertIn("Kept as they are", self.body(files, mode="existing"))
 
     def test_the_settings_line_names_only_what_the_file_gained(self):
-        files = dict(THEIR_FILES, **{".claude/settings.json": '{"enabledPlugins": {"symphony@sdlc-marketplace": false}}\n'})
+        files = dict(THEIR_FILES, **{".claude/settings.json": '{"enabledPlugins": {"symphony@symphony-marketplace": false}}\n'})
         body = self.body(files, mode="existing")
         self.assertIn("gains `extraKnownMarketplaces`, which names the marketplace"
-                      " OpenSpineConsortium/sdlc-marketplace; its plugin `symphony@sdlc-marketplace` stays off in"
+                      " OpenSpineConsortium/symphony-marketplace; its plugin `symphony@symphony-marketplace` stays off in"
                       " `enabledPlugins`, as you set it; every key it had stays.", body)
         self.assertNotIn("which enables its plugin", body)
         files = dict(THEIR_FILES, **{".claude/settings.json": '{"enabledPlugins": {"other@market": true}}\n'})
@@ -147,14 +147,14 @@ class Body(unittest.TestCase):
         self.assertIn("Files this repository ignores were not written", body)
         self.assertIn("add this section to the `CLAUDE.md` each session reads", body)
         self.assertIn("```markdown\n## How work is claimed\n", body)
-        self.assertIn("claude plugin marketplace add OpenSpineConsortium/sdlc-marketplace", body)
-        self.assertIn('"symphony@sdlc-marketplace": true', body)
+        self.assertIn("claude plugin marketplace add OpenSpineConsortium/symphony-marketplace", body)
+        self.assertIn('"symphony@symphony-marketplace": true', body)
         self.assertNotIn("gains the section", body)
 
     def test_invalid_settings_get_the_keys_to_add_by_hand(self):
         body = self.body({".claude/settings.json": "{"}, mode="existing")
         self.assertIn("does not parse", body)
-        self.assertIn('"symphony@sdlc-marketplace": true', body)
+        self.assertIn('"symphony@symphony-marketplace": true', body)
 
     def test_sharing_on_without_and_with_the_metrics_workflow(self):
         body = self.body()
@@ -354,7 +354,7 @@ class Body(unittest.TestCase):
         and CODEOWNERS' note says who the run picked."""
         body = self.body(source="installation", owner_type="Organization", creator="octo-org", kind_read=True)
         self.assertIn("because an administrator of octo-org/widget installed the App on it, or on all of its owner's"
-                      " repositories, which the front door (https://github.com/OpenSpineConsortium/sdlc-start) takes as"
+                      " repositories, which the front door (https://github.com/OpenSpineConsortium/symphony-start) takes as"
                       " the request.", body)
         self.assertNotIn("asked for it on the adoption form", body)
         self.assertIn("No form said which kind to bring: the run read this repository as a new repository, since its"
@@ -362,7 +362,7 @@ class Body(unittest.TestCase):
                       " or COPYING, a .gitignore or .gitattributes)", body)
         self.assertIn("For the protocol alone instead, close this pull request, which is the end of the front door's"
                       " own offers for this repository, then delete its branch `symphony/adopt` and open the form at"
-                      " https://github.com/OpenSpineConsortium/sdlc-start with the other kind.", body)
+                      " https://github.com/OpenSpineConsortium/symphony-start with the other kind.", body)
         self.assertIn("`.github/CODEOWNERS` names `octo-org`, the organization itself, since the run found no"
                       " administrator among the repository's direct collaborators; GitHub marks that line as one it"
                       " cannot resolve, so name a person or a team, because GitHub asks", body)
@@ -387,7 +387,7 @@ class Body(unittest.TestCase):
         self.assertIn("The form left the kind to the run, which read this repository as a new repository, since its"
                       " default branch held nothing but what GitHub makes when it initializes one", body)
         self.assertIn("For the protocol alone instead, close this pull request, delete its branch `symphony/adopt`, and"
-                      " open the form at https://github.com/OpenSpineConsortium/sdlc-start choosing the other kind.",
+                      " open the form at https://github.com/OpenSpineConsortium/symphony-start choosing the other kind.",
                       body)
         self.assertNotIn("No form said", body)
         self.assertNotIn("end of the front door's own offers", body)

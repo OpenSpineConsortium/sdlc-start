@@ -85,8 +85,11 @@ REPOSITORY = re.compile(r"[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}")
 INSTALLATION = re.compile(r"[0-9]{1,20}")
 LOGIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}")
 OWNER_TYPES = ("User", "Organization")
-# The front door and the template take no adoption of themselves.
-OWN_REPOSITORIES = ("openspineconsortium/sdlc-template", "openspineconsortium/sdlc-start")
+# The front door and the template take no adoption of themselves; their
+# names before the Symphony rename stay here because GitHub redirects a
+# typed old name to the renamed repository.
+OWN_REPOSITORIES = ("openspineconsortium/symphony-template", "openspineconsortium/symphony-start",
+                    "openspineconsortium/sdlc-template", "openspineconsortium/sdlc-start")
 
 # Never copied from the template: git's own folder, Python's caches.
 SKIPPED_NAMES = {".git", "__pycache__"}
@@ -139,15 +142,15 @@ CLAUDE_SECTION = (
     " request. Never push to the default branch or to another account's claim branch.\n"
 )
 CLAUDE_IMPORT = "@docs/agents/PROTOCOL.md"
-# The project preset of OpenSpineConsortium/sdlc-marketplace's README.
-MARKETPLACE_NAME = "sdlc-marketplace"
+# The project preset of OpenSpineConsortium/symphony-marketplace's README.
+MARKETPLACE_NAME = "symphony-marketplace"
 MARKETPLACE = {
-    "source": {"source": "github", "repo": "OpenSpineConsortium/sdlc-marketplace"},
+    "source": {"source": "github", "repo": "OpenSpineConsortium/symphony-marketplace"},
     "autoUpdate": True,
 }
-PLUGIN = "symphony@sdlc-marketplace"
+PLUGIN = "symphony@symphony-marketplace"
 
-FRONT_DOOR = "https://github.com/OpenSpineConsortium/sdlc-start"
+FRONT_DOOR = "https://github.com/OpenSpineConsortium/symphony-start"
 # How a request arrived: the form's issue, or the App's installation, which
 # the sweep found (.github/workflows/sweep.yml).
 SOURCES = ("issue", "installation")
@@ -584,7 +587,7 @@ def note_missing_protocol(manifest):
         cause = "was not written (above)"
     manifest["notes"].append(
         f"`{PROTOCOL_TEXT}` {cause}, so the claim protocol's text did not land and `{CLAUDE_MD}` gains no section"
-        " importing it. The text is spec/PROTOCOL.md in the public OpenSpineConsortium/sdlc-protocol; once it"
+        " importing it. The text is spec/PROTOCOL.md in the public OpenSpineConsortium/symphony-protocol; once it"
         f" stands at `{PROTOCOL_TEXT}`, add this to `{CLAUDE_MD}`:\n\n```markdown\n{CLAUDE_SECTION}```"
     )
 
@@ -886,7 +889,7 @@ def settings_line(manifest):
     gained = []
     if "extraKnownMarketplaces" in changed:
         gained.append(f"{key_phrase('extraKnownMarketplaces', changed)}, which names the marketplace"
-                      " OpenSpineConsortium/sdlc-marketplace")
+                      " OpenSpineConsortium/symphony-marketplace")
     if "enabledPlugins" in changed:
         gained.append(f"{key_phrase('enabledPlugins', changed)}, which enables its plugin `{PLUGIN}`")
     line = f"- `{SETTINGS}` gains " + ", and ".join(gained)
@@ -953,7 +956,7 @@ def ignored_notes(ignored):
                   "```markdown", CLAUDE_SECTION.rstrip("\n"), "```", ""]
     if SETTINGS in ignored:
         parts += [f"- `{SETTINGS}`: each person adds the marketplace and installs the plugin once, with"
-                  " `claude plugin marketplace add OpenSpineConsortium/sdlc-marketplace` and"
+                  " `claude plugin marketplace add OpenSpineConsortium/symphony-marketplace` and"
                   f" `claude plugin install {PLUGIN}`, or adds these keys to the settings file they keep.", "",
                   "```json", preset_settings().rstrip("\n"), "```", ""]
     others = [rel for rel in ignored if rel not in (CLAUDE_MD, SETTINGS)]
@@ -1264,7 +1267,7 @@ def next_steps_existing(manifest, report=None):
     return [
         "1. Read this pull request, then merge it.",
         "2. Each person who works here runs this once, after trusting the folder in Claude Code, since a project's"
-        " settings name the plugin but do not download it: `claude plugin install symphony@sdlc-marketplace --scope"
+        " settings name the plugin but do not download it: `claude plugin install symphony@symphony-marketplace --scope"
         " project`. `/symphony:board` in a new session then prints the board.",
         protect,
         board,
@@ -1279,8 +1282,8 @@ def next_steps_section(manifest, report=None):
     return [
         "## Next steps", "", *steps, "",
         "The same run makes the labels the board reads on this repository. Later releases of the protocol come from"
-        " the public OpenSpineConsortium/sdlc-protocol: from a clone of it beside yours,"
-        " `python3 ../sdlc-protocol/scripts/vendor.py . --consumer OpenSpineConsortium/sdlc-template`, by pull"
+        " the public OpenSpineConsortium/symphony-protocol: from a clone of it beside yours,"
+        " `python3 ../symphony-protocol/scripts/vendor.py . --consumer OpenSpineConsortium/symphony-template`, by pull"
         " request.",
     ]
 
@@ -1384,7 +1387,7 @@ def parse_args(argv):
     applying.add_argument("--kind-read", action="store_true",
                           help="the mode was read from the repository's tree, not chosen on a form")
     applying.add_argument("--manifest", required=True, help="where to write the manifest, outside the target")
-    applying.add_argument("--protocol-spec", help="sdlc-protocol's spec/PROTOCOL.md, which mode existing writes as"
+    applying.add_argument("--protocol-spec", help="symphony-protocol's spec/PROTOCOL.md, which mode existing writes as"
                           " docs/agents/PROTOCOL.md; without it, the template's own page")
 
     body = commands.add_parser("body", help="the pull request's text from a manifest")

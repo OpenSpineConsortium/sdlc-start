@@ -55,7 +55,7 @@ from pathlib import Path
 REPORT_SCHEMA = "sdlc-setup/1"
 API = "https://api.github.com"
 API_VERSION = "2022-11-28"
-USER_AGENT = "sdlc-start-setup"
+USER_AGENT = "symphony-start-setup"
 REPOSITORY = re.compile(r"[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}")
 REQUIRED_CHECKS_RULE = "required_status_checks"
 

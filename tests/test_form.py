@@ -21,7 +21,7 @@ WORKFLOWS = sorted((ROOT / ".github/workflows").glob("*.yml"))
 # GitHub's own actions on a major tag, and this repository's own reusable
 # workflow, which the issue path calls.
 ALLOWED_ACTIONS = re.compile(r"actions/(checkout|setup-python|create-github-app-token)@v\d+|\./\.github/workflows/adopt-run\.yml")
-SETUP_APP_INSTALL = "https://github.com/apps/openspine-sdlc-setup/installations/new"
+SETUP_APP_INSTALL = "https://github.com/apps/openspine-symphony-setup/installations/new"
 RUN_KEY = re.compile(r"^(\s*)(?:- )?run:\s*(.*)$")
 
 
@@ -236,7 +236,7 @@ class TheWorkflows(unittest.TestCase):
         self.assertEqual(text.count("secrets.SDLC_SETUP_APP_PRIVATE_KEY"), 4)
         self.assertIn("secrets.SDLC_SETUP_APP_PRIVATE_KEY != ''", text)
         probe, = [step for step in steps if "id: setup-probe" in step]
-        self.assertIn("owner: OpenSpineConsortium\n          repositories: sdlc-start\n", probe)
+        self.assertIn("owner: OpenSpineConsortium\n          repositories: symphony-start\n", probe)
         self.assertIn("permission-metadata: read", probe)
         self.assertNotIn("administration", probe)
         self.assertIn("steps.setup-token.outcome == 'failure'", probe)

@@ -107,7 +107,7 @@ from typing import NamedTuple
 
 API = "https://api.github.com"
 API_VERSION = "2022-11-28"
-USER_AGENT = "sdlc-start-sweep"
+USER_AGENT = "symphony-start-sweep"
 OWN = "OpenSpineConsortium"
 PER_PAGE = 100
 ADOPT_REF = "refs/heads/symphony/adopt"

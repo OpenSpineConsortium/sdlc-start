@@ -2,7 +2,7 @@ name: Adopt
 
 # Turns an adoption request made on this repository's form into a pull
 # request in the requester's own repository. The template,
-# OpenSpineConsortium/sdlc-template, stays internal to its enterprise, so
+# OpenSpineConsortium/symphony-template, stays internal to its enterprise, so
 # nobody outside it can press "Use this template"; this public repository
 # is the front door instead. A person installs the Symphony App on
 # their repository and either opens the form .github/ISSUE_TEMPLATE/adopt.yml,
@@ -211,7 +211,7 @@ jobs:
             exit 1
           fi
           if [ "$permission" != admin ]; then
-            bash start/scripts/refuse.sh "Nothing was done: the Symphony App is not installed on $TARGET, or not given that repository, or your account is not one of its administrators. Install the App at https://github.com/apps/openspine-sdlc/installations/new and choose the repository, then open a new request with the form as an administrator of it; this one is closed."
+            bash start/scripts/refuse.sh "Nothing was done: the Symphony App is not installed on $TARGET, or not given that repository, or your account is not one of its administrators. Install the App at https://github.com/apps/openspine-symphony/installations/new and choose the repository, then open a new request with the form as an administrator of it; this one is closed."
           fi
 
       # What the second job reads: a refusal here means nothing to adopt.
