@@ -54,6 +54,7 @@ on:
         type: string
         required: false
       mode:
+        description: new, existing, or read, which the run reads from the tree
         type: string
         required: true
       metrics:
@@ -128,8 +129,10 @@ jobs:
         run: |
           if [ -n "$ISSUE" ]; then
             echo "SOURCE=issue" >> "$GITHUB_ENV"
+            echo "KIND_READ=false" >> "$GITHUB_ENV"
           else
             echo "SOURCE=installation" >> "$GITHUB_ENV"
+            echo "KIND_READ=true" >> "$GITHUB_ENV"
           fi
           echo "REQUESTER=$REQUESTER_GIVEN" >> "$GITHUB_ENV"
           if [ -n "$REPOSITORY" ]; then
@@ -202,6 +205,7 @@ jobs:
           GH_TOKEN: ${{ steps.target-token.outputs.token }}
           TARGET: ${{ env.TARGET }}
           OWNER: ${{ env.OWNER }}
+          MODE_GIVEN: ${{ inputs.mode }}
           ISSUE_TOKEN: ${{ github.token }}
         run: |
           if [ "$TOKEN_OUTCOME" != success ]; then
@@ -245,6 +249,18 @@ jobs:
               bash start/scripts/refuse.sh "Nothing was done: $SAID already has a branch sdlc/adopt, from an earlier request. Delete it${BRANCHES_LINK:+ at $BRANCHES_LINK}, then open a new request with the form; this one is closed."
             fi
           fi
+          # The form may leave the kind to the run: read from the tree as
+          # the sweep reads it, with the same rule (scripts/sweep.py); a
+          # tree that cannot be read is an existing repository, which
+          # overwrites nothing.
+          mode="$MODE_GIVEN"
+          if [ "$mode" = read ]; then
+            gh api "repos/$TARGET/git/trees/$branch?recursive=1" > "$RUNNER_TEMP/tree.json" 2>/dev/null || echo '{}' > "$RUNNER_TEMP/tree.json"
+            mode="$(python3 -c 'import json, sys; sys.path.insert(0, "start/scripts"); import sweep; print(sweep.classify_tree(json.load(open(sys.argv[1]))))' "$RUNNER_TEMP/tree.json")"
+            echo "KIND_READ=true" >> "$GITHUB_ENV"
+            echo "the kind was read from the tree: $mode"
+          fi
+          echo "MODE=$mode" >> "$GITHUB_ENV"
 
       # Read-only and short-lived: revoked by the step after the checkout,
       # which runs whatever happens, so the post step has nothing to revoke.
@@ -283,7 +299,7 @@ jobs:
       # copy of the template has. The release stays out of this log, since
       # that line is the template's.
       - name: Fetch the protocol's text at the release the template vendors
-        if: env.REFUSED != 'true' && inputs.mode == 'existing'
+        if: env.REFUSED != 'true' && env.MODE == 'existing'
         run: |
           read -r library _ commit < template/tools/VENDORED || true
           if [ "$library" != sdlc-protocol ] || ! printf '%s' "$commit" | grep -Eq '^[0-9a-f]{40}$'; then
@@ -316,12 +332,14 @@ jobs:
           AUTHOR: ${{ env.REQUESTER }}
           OWNER_TYPE: ${{ steps.target.outputs.owner_type }}
           DEFAULT_BRANCH: ${{ steps.target.outputs.default_branch }}
-          MODE: ${{ inputs.mode }}
           METRICS: ${{ inputs.metrics }}
         run: |
           spec=()
           if [ "$MODE" = existing ]; then
             spec=(--protocol-spec "$RUNNER_TEMP/protocol/spec/PROTOCOL.md")
+          fi
+          if [ "$KIND_READ" = true ]; then
+            spec+=(--kind-read)
           fi
           python3 start/scripts/adopt.py apply --template template --target target \
             --repo "$TARGET" --creator "$AUTHOR" --owner-type "$OWNER_TYPE" \
@@ -496,7 +514,6 @@ jobs:
           PROBE_OUTCOME: ${{ steps.setup-probe.outcome }}
           GH_TOKEN: ${{ steps.setup-token.outputs.token }}
           TARGET: ${{ env.TARGET }}
-          MODE: ${{ inputs.mode }}
         run: |
           if [ "$SETUP_APP" = present ] && [ "$SETUP_OUTCOME" = success ]; then
             python3 start/scripts/setup.py apply --repo "$TARGET" --mode "$MODE" \
@@ -528,8 +545,6 @@ jobs:
       # says so, since the Setup App's token may have applied some of them.
       - name: Write the pull request's text
         if: env.REFUSED != 'true'
-        env:
-          MODE: ${{ inputs.mode }}
         run: |
           if [ ! -f "$RUNNER_TEMP/settings.json" ]; then
             echo "::warning::the settings step wrote no report; the pull request says so"
@@ -595,7 +610,6 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.target-token.outputs.token }}
           TARGET: ${{ env.TARGET }}
-          MODE: ${{ inputs.mode }}
         run: |
           if ! python3 start/scripts/adopt.py labels --template template --mode "$MODE" > "$RUNNER_TEMP/labels" 2> "$RUNNER_TEMP/labels-said"; then
             echo "::warning::the board's labels could not be read from the template, so none was made: $(tail -n 1 "$RUNNER_TEMP/labels-said")"
@@ -619,7 +633,7 @@ jobs:
       # warning and a line in the answer, not the request; the issue's
       # number stays out of the log.
       - name: Open the setup issue in a new repository
-        if: env.REFUSED != 'true' && inputs.mode == 'new'
+        if: env.REFUSED != 'true' && env.MODE == 'new'
         env:
           GITHUB_TOKEN: ${{ steps.target-token.outputs.token }}
           TARGET: ${{ env.TARGET }}
@@ -648,7 +662,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET: ${{ env.TARGET }}
-          MODE: ${{ inputs.mode }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           issue=""

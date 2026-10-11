@@ -68,6 +68,7 @@ FIELDS = (FIELD_REPOSITORY, FIELD_INSTALLATION, FIELD_KIND, FIELD_METRICS, FIELD
 # What GitHub writes under an optional field left empty.
 NO_RESPONSE = "_No response_"
 KINDS = {
+    "Read it from the repository: the whole template for a new one, the protocol alone for one with files of its own": "read",
     "New repository: the whole template": "new",
     "Existing repository: the protocol only": "existing",
 }
@@ -229,7 +230,8 @@ def is_ticked(value):
 def parse_form(body):
     """The form's fields: repository, owner and name (empty when only the
     installation was given), installation (empty when the repository was
-    named without it), mode and metrics."""
+    named without it), mode (read when the form left the kind to the run,
+    which reads it from the tree) and metrics."""
     sections = form_sections(body)
     if set(sections) != set(FIELDS):
         raise FormError("the issue is not the adoption form's")
@@ -241,7 +243,8 @@ def parse_form(body):
     owner, name = parse_repository(named) if named else ("", "")
     mode = choose(sections[FIELD_KIND], KINDS, FIELD_KIND)
     metrics = choose(sections[FIELD_METRICS], SHARING, FIELD_METRICS)
-    if not is_ticked(sections[FIELD_APP]):
+    # The installation GitHub filled in is the proof the box asks for.
+    if not installed and not is_ticked(sections[FIELD_APP]):
         raise FormError("the box that says the App is installed on the repository is not ticked")
     repository = f"{owner}/{name}" if named else ""
     return {"repository": repository, "owner": owner, "name": name, "installation": installation,
@@ -771,6 +774,7 @@ def new_manifest(options, links, protocol_text, plan):
         "owner_type": options.owner_type,
         "creator": options.creator,
         "source": options.source,
+        "kind_read": options.kind_read,
         "metrics_workflow": False,  # known once the files have landed
         "metrics_in_template": all(rel in plan for rel in METRICS_FILES),
         "protocol_text": protocol_text,
@@ -966,7 +970,7 @@ def notes_section(manifest):
         parts += ignored_notes(ignored)
     if manifest["mode"] == "new" and manifest["owner_type"] == "Organization":
         parts += [codeowners_note(manifest), ""]
-    if source_of(manifest) == "installation":
+    if manifest.get("kind_read"):
         parts += [kind_note(manifest), ""]
     parts += [f"{note}\n" for note in manifest["notes"]]
     return (["## Notes", "", *parts]) if parts else []
@@ -992,8 +996,8 @@ def codeowners_note(manifest):
 
 
 def kind_note(manifest):
-    """The sweep chose the kind from the tree, since no form said it; the
-    other kind is one request away."""
+    """The kind was read from the tree, because the form left it to the run
+    or because there was no form; the other kind is one request away."""
     if manifest["mode"] == "new":
         read = ("as a new repository, since its default branch held nothing but what GitHub makes when it"
                 " initializes one (a README, a LICENSE or COPYING, a .gitignore or .gitattributes)")
@@ -1001,9 +1005,13 @@ def kind_note(manifest):
     else:
         read = "as an existing repository, since its default branch holds files of its own"
         other = "the whole template"
-    return (f"No form said which kind to bring: the run read this repository {read}. For {other} instead, close this"
-            " pull request, which is the end of the front door's own offers for this repository, then delete its"
-            f" branch `sdlc/adopt` and open the form at {FRONT_DOOR} with the other kind.")
+    if source_of(manifest) == "installation":
+        return (f"No form said which kind to bring: the run read this repository {read}. For {other} instead, close"
+                " this pull request, which is the end of the front door's own offers for this repository, then"
+                f" delete its branch `sdlc/adopt` and open the form at {FRONT_DOOR} with the other kind.")
+    return (f"The form left the kind to the run, which read this repository {read}. For {other} instead, close this"
+            f" pull request, delete its branch `sdlc/adopt`, and open the form at {FRONT_DOOR} choosing the other"
+            " kind.")
 
 
 def sharing_section(manifest):
@@ -1359,6 +1367,8 @@ def parse_args(argv):
     applying.add_argument("--metrics", required=True, choices=("on", "off"))
     applying.add_argument("--source", default="issue", choices=SOURCES,
                           help="how the request arrived: the form's issue (default) or the App's installation")
+    applying.add_argument("--kind-read", action="store_true",
+                          help="the mode was read from the repository's tree, not chosen on a form")
     applying.add_argument("--manifest", required=True, help="where to write the manifest, outside the target")
     applying.add_argument("--protocol-spec", help="sdlc-protocol's spec/PROTOCOL.md, which mode existing writes as"
                           " docs/agents/PROTOCOL.md; without it, the template's own page")

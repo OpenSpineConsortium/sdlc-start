@@ -55,13 +55,31 @@ class TheForm(unittest.TestCase):
     def test_every_option_parse_takes_is_offered(self):
         for option in [*adopt.KINDS, *adopt.SHARING]:
             self.assertIn(f'        - "{option}"\n', self.text)
-        self.assertIn(f"        - label: {adopt.APP_INSTALLED}\n          required: true\n", self.text)
+        self.assertIn(f"        - label: {adopt.APP_INSTALLED}\n          required: false\n", self.text)
 
     def test_sharing_is_the_default(self):
         share, keep = (self.text.index(f'        - "{option}"\n') for option in adopt.SHARING)
         self.assertLess(share, keep)
         self.assertEqual(adopt.SHARING[list(adopt.SHARING)[0]], "on")
         self.assertIn("      default: 0\n", self.text)
+
+    def test_reading_the_kind_from_the_repository_is_the_default(self):
+        """From the install the form is one button: the first kind, the
+        default, leaves the kind to the run, which reads the tree."""
+        first = list(adopt.KINDS)[0]
+        self.assertEqual(adopt.KINDS[first], "read")
+        kind = self.text.index("    id: kind\n")
+        offsets = [self.text.index(f'        - "{option}"\n') for option in adopt.KINDS]
+        self.assertEqual(offsets[0], min(offsets))
+        self.assertIn("      default: 0\n", self.text[kind:self.text.index("    id: metrics\n")])
+        run = (ROOT / ".github/workflows/adopt-run.yml").read_text(encoding="utf-8")
+        self.assertIn('if [ "$mode" = read ]; then', run)
+        self.assertIn("sweep.classify_tree", run)
+        self.assertIn('echo "MODE=$mode" >> "$GITHUB_ENV"', run)
+        self.assertIn("env.MODE == 'existing'", run)
+        self.assertIn("env.MODE == 'new'", run)
+        self.assertEqual(run.count("inputs.mode"), 1)
+        self.assertIn("spec+=(--kind-read)", run)
 
     def test_the_label_and_the_title(self):
         self.assertIn('labels: ["adopt"]\n', self.text)

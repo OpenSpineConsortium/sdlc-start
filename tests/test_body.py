@@ -348,7 +348,7 @@ class Body(unittest.TestCase):
         """The sweep's path: the opening says the installation was the
         request, a note says how the kind was read and how to get the other,
         and CODEOWNERS' note says who the run picked."""
-        body = self.body(source="installation", owner_type="Organization", creator="octo-org")
+        body = self.body(source="installation", owner_type="Organization", creator="octo-org", kind_read=True)
         self.assertIn("because an administrator of octo-org/widget installed the App on it, or on all of its owner's"
                       " repositories, which the front door (https://github.com/OpenSpineConsortium/sdlc-start) takes as"
                       " the request.", body)
@@ -362,16 +362,34 @@ class Body(unittest.TestCase):
         self.assertIn("`.github/CODEOWNERS` names `octo-org`, the organization itself, since the run found no"
                       " administrator among the repository's direct collaborators; GitHub marks that line as one it"
                       " cannot resolve, so name a person or a team, because GitHub asks", body)
-        body = self.body(source="installation", owner_type="Organization", creator="mona")
+        body = self.body(source="installation", owner_type="Organization", creator="mona", kind_read=True)
         self.assertIn("`.github/CODEOWNERS` names `mona`, the first administrator the run found among the"
                       " repository's direct collaborators, because GitHub asks", body)
-        body = self.body(THEIR_FILES, mode="existing", source="installation")
+        body = self.body(THEIR_FILES, mode="existing", source="installation", kind_read=True)
         self.assertIn("read this repository as an existing repository, since its default branch holds files of its"
                       " own. For the whole template instead", body)
         self.assertNotIn("CODEOWNERS", body)
         body = self.body(owner_type="Organization")
         self.assertIn("`.github/CODEOWNERS` names `mona`, who asked for this pull request, because GitHub", body)
         self.assertNotIn("No form said", body)
+        self.assertNotIn("left the kind to the run", body)
+
+    def test_a_form_that_left_the_kind_to_the_run(self):
+        """The one-button form: the kind was read from the tree, and the
+        note says so in the form's own terms, with the other kind one form
+        away and no word about the sweep's offers."""
+        body = self.body(kind_read=True)
+        self.assertIn("asked for it on the adoption form", body)
+        self.assertIn("The form left the kind to the run, which read this repository as a new repository, since its"
+                      " default branch held nothing but what GitHub makes when it initializes one", body)
+        self.assertIn("For the protocol alone instead, close this pull request, delete its branch `sdlc/adopt`, and"
+                      " open the form at https://github.com/OpenSpineConsortium/sdlc-start choosing the other kind.",
+                      body)
+        self.assertNotIn("No form said", body)
+        self.assertNotIn("end of the front door's own offers", body)
+        body = self.body(THEIR_FILES, mode="existing", kind_read=True)
+        self.assertIn("which read this repository as an existing repository, since its default branch holds files"
+                      " of its own. For the whole template instead", body)
 
     def test_a_file_that_is_not_a_report(self):
         self.body()
