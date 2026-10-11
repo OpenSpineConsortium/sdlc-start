@@ -39,7 +39,8 @@ repository was the only one it reached; otherwise the pull request asks you to u
 
 ## The adoption
 
-Installing SymphonyBoard sends you to a public form on the front door repository,
+Installing SymphonyBoard sends you on to Symphony Setup's install page, and that install
+sends you to a public form on the front door repository,
 github.com/OpenSpineConsortium/symphony-start. Pressing Create there opens a public issue in your
 GitHub name; the issue carries what the form held (your installation's number, or a repository name
 you typed, the kind and two boxes) and the run's answers, and it is closed when the run is done,
