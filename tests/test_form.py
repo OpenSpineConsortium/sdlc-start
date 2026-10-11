@@ -21,7 +21,7 @@ WORKFLOWS = sorted((ROOT / ".github/workflows").glob("*.yml"))
 # GitHub's own actions on a major tag, and this repository's own reusable
 # workflow, which the issue path calls.
 ALLOWED_ACTIONS = re.compile(r"actions/(checkout|setup-python|create-github-app-token)@v\d+|\./\.github/workflows/adopt-run\.yml")
-SETUP_APP_INSTALL = "https://github.com/apps/openspine-symphony-setup/installations/new"
+SETUP_APP_INSTALL = "https://github.com/apps/symphony-setup/installations/new"
 RUN_KEY = re.compile(r"^(\s*)(?:- )?run:\s*(.*)$")
 
 

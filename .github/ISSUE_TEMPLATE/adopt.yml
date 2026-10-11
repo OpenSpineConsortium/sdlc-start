@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Installed the App and landed here? Press Create: a pull request is open in each repository the installation reaches that has no adoption yet, within about two minutes. For the repository's settings too (ruleset, auto-merge, secret scanning), install the Setup App first, https://github.com/apps/openspine-symphony-setup/installations/new ("Only select repositories"): it brings you back here, holds Administration for the one run, and uninstalls itself when done. Came here on your own? Install the App first (https://github.com/apps/openspine-symphony/installations/new) or name the repository below. This issue is public: a name typed here shows, an installation's number says nothing.
+        Installed the App and landed here? Press Create: a pull request is open in each repository the installation reaches that has no adoption yet, within about two minutes. For the repository's settings too (ruleset, auto-merge, secret scanning), install the Setup App first, https://github.com/apps/symphony-setup/installations/new ("Only select repositories"): it brings you back here, holds Administration for the one run, and uninstalls itself when done. Came here on your own? Install the App first (https://github.com/apps/symphony/installations/new) or name the repository below. This issue is public: a name typed here shows, an installation's number says nothing.
   - type: input
     id: installation_id
     attributes:

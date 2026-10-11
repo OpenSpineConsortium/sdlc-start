@@ -52,7 +52,7 @@ class Transport:
 
     def default(self, token, method, path):
         if path == "/app":
-            return 200, {"id": 1, "slug": "openspine-symphony"}
+            return 200, {"id": 1, "slug": "symphony"}
         if token == "app" and path == "/app/installations/70":
             return 200, MAIN
         if token == "setup" and path == "/app/installations/90":
