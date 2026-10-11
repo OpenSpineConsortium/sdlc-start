@@ -69,7 +69,7 @@ class Transport:
             return 204, None
         if "/branches/" in path:
             return 200, {"name": "main"}
-        if "/git/matching-refs/heads/sdlc/adopt" in path:
+        if "/git/matching-refs/heads/" in path:
             return 200, []
         if path == "/repositories/3/contents/docs/agents/PROTOCOL.md":
             return 200, {"type": "file"}

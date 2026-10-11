@@ -5,9 +5,9 @@ name: Sweep
 # no repository event, so no workflow runs on it; what needs no server is
 # this sweep. Every ten minutes it signs the App's JWT, lists the App's
 # installations and their repositories, and for each repository the App
-# reaches that has no adoption yet (no branch sdlc/adopt, no
+# reaches that has no adoption yet (no branch symphony/adopt, no
 # docs/agents/PROTOCOL.md on the default branch, a commit to go into, and
-# no .github/sdlc-adopt saying off) it starts adopt-run.yml by dispatch,
+# no .github/symphony-adopt saying off) it starts adopt-run.yml by dispatch,
 # with the installation's and the repository's ids and the kind the tree
 # shows: a default branch holding nothing but what GitHub makes when it
 # initializes a repository (a README, a LICENSE or COPYING, a .gitignore
@@ -19,9 +19,9 @@ name: Sweep
 # installation that has not accepted every permission the pull request
 # needs is passed over, as is a repository whose Issues are off (the
 # run tells it in an issue when it fails), one whose adoption was offered
-# (the branch sdlc/adopt), declined (a closed pull request from it),
-# refused (the App's issue "OpenSpine SDLC could not open its pull
-# request", open), or opted out (.github/sdlc-adopt saying off); and the
+# (the branch symphony/adopt), declined (a closed pull request from it),
+# refused (the App's issue "Symphony could not open its pull
+# request", open), or opted out (.github/symphony-adopt saying off); and the
 # organization's own repositories, which use the form. Nothing of a
 # repository reaches this public log: scripts/sweep.py prints counts, the
 # candidates go to a file of the run, and the dispatch carries ids, never

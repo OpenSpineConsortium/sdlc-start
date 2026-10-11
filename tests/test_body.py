@@ -59,7 +59,7 @@ class Body(unittest.TestCase):
 
     def test_new_mode(self):
         body = self.body()
-        self.assertIn("the whole OpenSpine SDLC template into octo-org/widget", body)
+        self.assertIn("the whole Symphony template into octo-org/widget", body)
         self.assertIn("Replaced", body)
         self.assertIn("- `README.md`", body)
         self.assertIn("LICENSE is not touched", body)
@@ -77,8 +77,8 @@ class Body(unittest.TestCase):
         self.assertIn("gains the section \"How work is claimed\"", body)
         self.assertIn("gains `extraKnownMarketplaces`, which names the marketplace"
                       " OpenSpineConsortium/sdlc-marketplace, and `enabledPlugins`, which enables its plugin"
-                      " `sdlc@sdlc-marketplace`; every key it had stays.", body)
-        self.assertIn("claude plugin install sdlc@sdlc-marketplace --scope project", body)
+                      " `symphony@sdlc-marketplace`; every key it had stays.", body)
+        self.assertIn("claude plugin install symphony@sdlc-marketplace --scope project", body)
         self.assertIn("https://github.com/octo-org/widget/settings/rules", body)
         self.assertIn("Never target `board`, which the workflows force-push", body)
         self.assertIn("renders the board at https://github.com/octo-org/widget/blob/board/STATE.md", body)
@@ -92,10 +92,10 @@ class Body(unittest.TestCase):
         self.assertIn("Kept as they are", self.body(files, mode="existing"))
 
     def test_the_settings_line_names_only_what_the_file_gained(self):
-        files = dict(THEIR_FILES, **{".claude/settings.json": '{"enabledPlugins": {"sdlc@sdlc-marketplace": false}}\n'})
+        files = dict(THEIR_FILES, **{".claude/settings.json": '{"enabledPlugins": {"symphony@sdlc-marketplace": false}}\n'})
         body = self.body(files, mode="existing")
         self.assertIn("gains `extraKnownMarketplaces`, which names the marketplace"
-                      " OpenSpineConsortium/sdlc-marketplace; its plugin `sdlc@sdlc-marketplace` stays off in"
+                      " OpenSpineConsortium/sdlc-marketplace; its plugin `symphony@sdlc-marketplace` stays off in"
                       " `enabledPlugins`, as you set it; every key it had stays.", body)
         self.assertNotIn("which enables its plugin", body)
         files = dict(THEIR_FILES, **{".claude/settings.json": '{"enabledPlugins": {"other@market": true}}\n'})
@@ -108,7 +108,7 @@ class Body(unittest.TestCase):
         self.assertNotIn("is the template's own text", body)
         self.assertIn("is this repository's own and is kept, so the claim protocol's text did not land and `CLAUDE.md`"
                       " gains no section importing it", body)
-        self.assertIn("as the sdlc plugin's claim protocol says", body)
+        self.assertIn("as the symphony plugin's claim protocol says", body)
         self.assertIn("```markdown\n## How work is claimed\n", body)
 
     def test_the_librarys_spec_gets_no_note_about_the_templates_text(self):
@@ -148,19 +148,19 @@ class Body(unittest.TestCase):
         self.assertIn("add this section to the `CLAUDE.md` each session reads", body)
         self.assertIn("```markdown\n## How work is claimed\n", body)
         self.assertIn("claude plugin marketplace add OpenSpineConsortium/sdlc-marketplace", body)
-        self.assertIn('"sdlc@sdlc-marketplace": true', body)
+        self.assertIn('"symphony@sdlc-marketplace": true', body)
         self.assertNotIn("gains the section", body)
 
     def test_invalid_settings_get_the_keys_to_add_by_hand(self):
         body = self.body({".claude/settings.json": "{"}, mode="existing")
         self.assertIn("does not parse", body)
-        self.assertIn('"sdlc@sdlc-marketplace": true', body)
+        self.assertIn('"symphony@sdlc-marketplace": true', body)
 
     def test_sharing_on_without_and_with_the_metrics_workflow(self):
         body = self.body()
         self.assertIn("Sharing of anonymous aggregates is on", body)
         self.assertIn("does not carry its metrics workflow yet", body)
-        self.assertIn("write `off` in `.github/sdlc-metrics`", body)
+        self.assertIn("write `off` in `.github/symphony-metrics`", body)
         make_template(self.template, metrics=True)
         body = self.body()
         self.assertIn("writes METRICS.json to the branch `metrics`: counts, durations and rates of the protocol at"
@@ -184,10 +184,10 @@ class Body(unittest.TestCase):
     def test_the_title_per_mode(self):
         self.body()
         self.assertEqual(run(["body", "--title", "--manifest", str(self.manifest)])[1],
-                         "Adopt the OpenSpine SDLC template\n")
+                         "Adopt the Symphony template\n")
         self.body(THEIR_FILES, mode="existing")
         self.assertEqual(run(["body", "--title", "--manifest", str(self.manifest)])[1],
-                         "Take up the OpenSpine SDLC claim protocol\n")
+                         "Take up the Symphony claim protocol\n")
 
     def test_a_file_that_is_not_a_manifest(self):
         write(self.root, "other.json", '{"schema": "something else"}\n')
@@ -206,7 +206,7 @@ class Body(unittest.TestCase):
 
     def test_the_settings_applied_in_new_mode(self):
         body = self.body(settings=report())
-        self.assertIn("## Settings\n\nThe OpenSpine SDLC Setup App, which you installed on this repository, applied in"
+        self.assertIn("## Settings\n\nThe Symphony Setup App, which you installed on this repository, applied in"
                       " this run the settings `scripts/setup-repo.sh` applies", body)
         self.assertIn("- The ruleset \"Protect the default branch\" for the default branch: created. It requires a"
                       " pull request that passes the check named \"check\" and blocks force pushes and deletions, and"
@@ -301,7 +301,7 @@ class Body(unittest.TestCase):
     def test_the_setup_app_not_installed(self):
         body = self.body(settings=report(outcome="not-installed"))
         self.assertIn("## Settings\n\nNone of the settings was changed: no token for this repository could be made"
-                      " from the OpenSpine SDLC Setup App, which means it is not installed on this repository, or its"
+                      " from the Symphony Setup App, which means it is not installed on this repository, or its"
                       " installation does not include it, or GitHub did not answer; so this run could not apply the"
                       " settings `scripts/setup-repo.sh` applies", body)
         self.assertIn("Step 2 of the next steps applies them by hand, with `scripts/setup-repo.sh`.", body)
@@ -361,7 +361,7 @@ class Body(unittest.TestCase):
                       " default branch held nothing but what GitHub makes when it initializes one (a README, a LICENSE"
                       " or COPYING, a .gitignore or .gitattributes)", body)
         self.assertIn("For the protocol alone instead, close this pull request, which is the end of the front door's"
-                      " own offers for this repository, then delete its branch `sdlc/adopt` and open the form at"
+                      " own offers for this repository, then delete its branch `symphony/adopt` and open the form at"
                       " https://github.com/OpenSpineConsortium/sdlc-start with the other kind.", body)
         self.assertIn("`.github/CODEOWNERS` names `octo-org`, the organization itself, since the run found no"
                       " administrator among the repository's direct collaborators; GitHub marks that line as one it"
@@ -386,7 +386,7 @@ class Body(unittest.TestCase):
         self.assertIn("asked for it on the adoption form", body)
         self.assertIn("The form left the kind to the run, which read this repository as a new repository, since its"
                       " default branch held nothing but what GitHub makes when it initializes one", body)
-        self.assertIn("For the protocol alone instead, close this pull request, delete its branch `sdlc/adopt`, and"
+        self.assertIn("For the protocol alone instead, close this pull request, delete its branch `symphony/adopt`, and"
                       " open the form at https://github.com/OpenSpineConsortium/sdlc-start choosing the other kind.",
                       body)
         self.assertNotIn("No form said", body)

@@ -10,7 +10,7 @@ form; a Setup App installation stands for the App's installation on the
 same account, narrowed to the repositories the Setup App was given.
 
 Of the installation's repositories, those with no adoption yet (the
-sweep's own rules in sweep.py: a commit, no branch sdlc/adopt, no
+sweep's own rules in sweep.py: a commit, no branch symphony/adopt, no
 docs/agents/PROTOCOL.md, no opt-out) that the issue's author administers
 are the ones to adopt, newest first, at most LIMIT of them. The file --out
 gets installation_id, repository_ids (a JSON list) and count, as KEY=value

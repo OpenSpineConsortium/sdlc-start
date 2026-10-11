@@ -1,5 +1,5 @@
-name: Adopt the SDLC template
-description: One pull request with the OpenSpine SDLC template, or its claim protocol, into your repository.
+name: Adopt Symphony
+description: One pull request with the Symphony template, or its claim protocol, into your repository.
 title: "Adopt"
 labels: ["adopt"]
 body:
@@ -39,4 +39,4 @@ body:
       label: Options
       options:
         - label: Merge the pull request for me
-        - label: Do not share anonymous aggregates (counts, durations and rates of the protocol at work, never code, text or names; the switch is .github/sdlc-metrics)
+        - label: Do not share anonymous aggregates (counts, durations and rates of the protocol at work, never code, text or names; the switch is .github/symphony-metrics)

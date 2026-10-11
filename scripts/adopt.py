@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Adopt the OpenSpine SDLC template into a repository, from the form or
+"""Adopt the Symphony template into a repository, from the form or
 from the App's installation.
 
 .github/workflows/adopt.yml runs parse; .github/workflows/adopt-run.yml,
@@ -27,7 +27,7 @@ body and labels, one subcommand per step:
          repository ignores is never written, the protocol's text is the
          library's spec when --protocol-spec names it, CLAUDE.md gains
          one section once that text has landed, and .claude/settings.json
-         the keys that enable the sdlc plugin.
+         the keys that enable the symphony plugin.
   body   prints the pull request's text from the manifest, or with
          --title its title; with --settings, the report scripts/setup.py
          wrote is rendered into it, so the pull request says which of
@@ -76,7 +76,7 @@ KINDS = {
 # person says otherwise.
 MERGE_FOR_ME = "Merge the pull request for me"
 OPT_OUT_OF_SHARING = ("Do not share anonymous aggregates (counts, durations and rates of the protocol at work, never"
-                      " code, text or names; the switch is .github/sdlc-metrics)")
+                      " code, text or names; the switch is .github/symphony-metrics)")
 OPTIONS = (MERGE_FOR_ME, OPT_OUT_OF_SHARING)
 HEADING = re.compile(r"### (.+)")
 BOX = re.compile(r"- \[([ xX])\] (.+)")
@@ -107,7 +107,7 @@ BOARD_WORKFLOW = ".github/workflows/board.yml"
 METRICS_WORKFLOW = ".github/workflows/metrics.yml"
 # The template's field metrics, copied in both modes once it carries both.
 METRICS_FILES = (METRICS_WORKFLOW, "tools/metrics.py")
-SWITCH = ".github/sdlc-metrics"
+SWITCH = ".github/symphony-metrics"
 # Mode existing brings a workflow and the script it runs together or not
 # at all: the template's workflow would run a script of theirs by the same
 # name, with contents: write, and theirs would run the template's. The
@@ -145,7 +145,7 @@ MARKETPLACE = {
     "source": {"source": "github", "repo": "OpenSpineConsortium/sdlc-marketplace"},
     "autoUpdate": True,
 }
-PLUGIN = "sdlc@sdlc-marketplace"
+PLUGIN = "symphony@sdlc-marketplace"
 
 FRONT_DOOR = "https://github.com/OpenSpineConsortium/sdlc-start"
 # How a request arrived: the form's issue, or the App's installation, which
@@ -156,7 +156,7 @@ SOURCES = ("issue", "installation")
 # installs on the repository for the one run that applies the template's
 # repository settings (scripts/setup.py) and uninstalls afterwards. Its
 # report says what was done, and the pull request's text follows it.
-SETUP_APP = "OpenSpine SDLC Setup"
+SETUP_APP = "Symphony Setup"
 SETUP_SCHEMA = "sdlc-setup/1"
 SETUP_OUTCOMES = ("applied", "not-set-up", "not-installed", "front-door-broken", "not-reported")
 SETUP_SCRIPT = "scripts/setup-repo.sh"
@@ -199,7 +199,7 @@ def parse_repository(value):
     if owner.startswith("-") or name in (".", "..") or name.lower().endswith(".git"):
         raise FormError(shape)
     if value.lower() in OWN_REPOSITORIES:
-        raise FormError("that repository is part of the OpenSpine SDLC itself and takes no adoption")
+        raise FormError("that repository is part of Symphony itself and takes no adoption")
     return owner, name
 
 
@@ -850,8 +850,8 @@ def folded(summary, paths):
 
 def title(manifest):
     if manifest["mode"] == "new":
-        return "Adopt the OpenSpine SDLC template"
-    return "Take up the OpenSpine SDLC claim protocol"
+        return "Adopt the Symphony template"
+    return "Take up the Symphony claim protocol"
 
 
 def source_of(manifest):
@@ -861,16 +861,16 @@ def source_of(manifest):
 def opening(manifest):
     repo = manifest["repository"]
     if source_of(manifest) == "installation":
-        asked = (f"The OpenSpine SDLC App opened it because an administrator of {repo} installed the App on it, or"
+        asked = (f"The Symphony App opened it because an administrator of {repo} installed the App on it, or"
                  f" on all of its owner's repositories, which the front door ({FRONT_DOOR}) takes as the request."
                  " Nothing changes until you merge it.")
     else:
-        asked = (f"The OpenSpine SDLC App opened it because an administrator of {repo} asked for it on the adoption"
+        asked = (f"The Symphony App opened it because an administrator of {repo} asked for it on the adoption"
                  f" form ({FRONT_DOOR}). Nothing changes until you merge it.")
     if manifest["mode"] == "new":
-        return (f"This pull request brings the whole OpenSpine SDLC template into {repo}, as \"Use this template\""
+        return (f"This pull request brings the whole Symphony template into {repo}, as \"Use this template\""
                 f" would have made it, with this repository's names filled in. {asked}")
-    return (f"This pull request brings the OpenSpine SDLC claim protocol into {repo}, beside your own files: the"
+    return (f"This pull request brings the Symphony claim protocol into {repo}, beside your own files: the"
             " board, the claim files and the text every Claude Code session reads before it takes work. No file of"
             f" yours is overwritten. {asked}")
 
@@ -972,7 +972,7 @@ def notes_section(manifest):
     templates_page = manifest["protocol_text"] == "template" and PROTOCOL_TEXT in manifest["added"]
     if manifest["mode"] == "existing" and templates_page:
         parts += [f"`{PROTOCOL_TEXT}` is the template's own text, which also names files only a copy of the"
-                  " template carries (its skills, routines and setup pages); the sdlc plugin brings the skills.", ""]
+                  " template carries (its skills, routines and setup pages); the symphony plugin brings the skills.", ""]
     ignored = [item["path"] for item in manifest["skipped"] if item["why"] == IGNORED_WHY]
     if ignored:
         parts += ignored_notes(ignored)
@@ -1016,9 +1016,9 @@ def kind_note(manifest):
     if source_of(manifest) == "installation":
         return (f"No form said which kind to bring: the run read this repository {read}. For {other} instead, close"
                 " this pull request, which is the end of the front door's own offers for this repository, then"
-                f" delete its branch `sdlc/adopt` and open the form at {FRONT_DOOR} with the other kind.")
+                f" delete its branch `symphony/adopt` and open the form at {FRONT_DOOR} with the other kind.")
     return (f"The form left the kind to the run, which read this repository {read}. For {other} instead, close this"
-            f" pull request, delete its branch `sdlc/adopt`, and open the form at {FRONT_DOOR} choosing the other"
+            f" pull request, delete its branch `symphony/adopt`, and open the form at {FRONT_DOOR} choosing the other"
             " kind.")
 
 
@@ -1029,7 +1029,7 @@ def sharing_section(manifest):
         if manifest["metrics_workflow"]:
             parts.append("Once a day `.github/workflows/metrics.yml` writes METRICS.json to the branch `metrics`:"
                          " counts, durations and rates of the protocol at work, and never code, text, titles,"
-                         " logins, branch names or repository names. The OpenSpine SDLC App reads that branch's"
+                         " logins, branch names or repository names. The Symphony App reads that branch's"
                          " METRICS.json, and JUDGE.json, the failure-type frequencies that someone's own judge"
                          " writes when they run it on their own machine and Claude account, and nothing else; the"
                          " dataset names this repository only by a salted hash.")
@@ -1143,14 +1143,14 @@ def by_hand_pointer(manifest):
 
 def uninstall_sentence(manifest):
     return (f"That was the Setup App's one job: uninstall it at {installations_page(manifest)}, since it holds"
-            " Administration on this repository and nothing else uses it. The OpenSpine SDLC App, which opened this"
+            " Administration on this repository and nothing else uses it. The Symphony App, which opened this"
             " pull request, stays; uninstalling it undoes nothing here and only stops what is shared, above, from"
             " being read.")
 
 
 def uninstalled_sentence(manifest):
     return ("The Setup App uninstalled itself once that was done, this repository being the only one its"
-            " installation reached. The OpenSpine SDLC App, which opened this pull request, stays; uninstalling it"
+            " installation reached. The Symphony App, which opened this pull request, stays; uninstalling it"
             " undoes nothing here and only stops what is shared, above, from being read.")
 
 
@@ -1260,16 +1260,16 @@ def next_steps_existing(manifest, report=None):
     else:
         board = (f"4. `{BOARD_WORKFLOW}` was not written (above), so nothing renders the board until the board's"
                  " workflow and its script are brought together by hand.")
-    protocol = PROTOCOL_TEXT if PROTOCOL_TEXT in added else "the sdlc plugin's claim protocol"
+    protocol = PROTOCOL_TEXT if PROTOCOL_TEXT in added else "the symphony plugin's claim protocol"
     return [
         "1. Read this pull request, then merge it.",
         "2. Each person who works here runs this once, after trusting the folder in Claude Code, since a project's"
-        " settings name the plugin but do not download it: `claude plugin install sdlc@sdlc-marketplace --scope"
-        " project`. `/sdlc:board` in a new session then prints the board.",
+        " settings name the plugin but do not download it: `claude plugin install symphony@sdlc-marketplace --scope"
+        " project`. `/symphony:board` in a new session then prints the board.",
         protect,
         board,
         "5. Claim the first issue: open one labelled todo, run `claude` in your clone and paste: \"Claim issue N with"
-        f" /sdlc:claim and carry it to a ready pull request, as {protocol} says. Where the skill names"
+        f" /symphony:claim and carry it to a ready pull request, as {protocol} says. Where the skill names"
         " bash scripts/check.sh, run this repository's own checks instead. Do not merge.\"",
     ]
 
@@ -1364,7 +1364,7 @@ def command_labels(options):
 
 
 def parse_args(argv):
-    parser = argparse.ArgumentParser(description="Adopt the OpenSpine SDLC template into a repository.")
+    parser = argparse.ArgumentParser(description="Adopt the Symphony template into a repository.")
     commands = parser.add_subparsers(dest="command", required=True)
 
     reading = commands.add_parser("parse", help="the adoption form's fields as KEY=value lines")
