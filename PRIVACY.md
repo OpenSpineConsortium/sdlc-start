@@ -9,7 +9,7 @@ the contact on https://openspineconsortium.com/symphony/.
 Symphony is two GitHub Apps. **SymphonyBoard** (github.com/apps/symphonyboard) brings the Symphony
 template, or its claim protocol, into a repository by pull request, and afterwards reads one branch
 of that repository once a day for anonymous aggregates. **Symphony Setup** (github.com/apps/symphony-setup)
-applies four settings to a repository for one run and uninstalls itself. Both work only through
+applies five settings to a repository for one run and uninstalls itself. Both work only through
 GitHub: nothing of yours goes anywhere but to GitHub's own API, to your own repository and, as
 aggregates, to the developer. This statement says what each App can see, what it writes, what the
 developer receives and keeps, and how to stop any of it.
@@ -33,7 +33,7 @@ statement is written, it is turned off, and the section on the server below appl
 it is turned on. SymphonyBoard never asks for Administration.
 
 Symphony Setup asks for two permissions and nothing else: Administration (read and write), for the
-four settings below, and Metadata (read). It has no webhook and receives no event. It is meant to be
+five settings below, and Metadata (read). It has no webhook and receives no event. It is meant to be
 installed on the one repository being adopted, for the one run, and the run uninstalls it when that
 repository was the only one it reached; otherwise the pull request asks you to uninstall it.
 
@@ -66,13 +66,15 @@ login of the person who asked (or, from the sweep, the administrator it found), 
 repository is private and, where the Setup App was installed, quotes GitHub's own answer for each
 setting, which may name your account's plan; in an organization's new repository, the pull request
 also writes that login into `.github/CODEOWNERS`. With Symphony Setup installed, the run creates the
-default branch's ruleset, turns on delete-head-branches and auto-merge, and turns on secret scanning
-and push protection where your plan and visibility allow it, then revokes the Setup App's token and
-uninstalls the Setup App when the repository was its only one. When you ticked "Merge the pull
-request for me", the run merges it or arms auto-merge. Everything else lands only when you merge.
-Closing the pull request instead leaves the labels, the branch, the settings and the issue for you
-to undo. When the run could not open its pull request and nobody was on the form to tell, the App
-opens one issue in your repository saying why.
+default branch's ruleset, turns on delete-head-branches and auto-merge, adds the topic `symphony` to
+the repository's topics (the sign on the repository's page that it is adopted, which anyone can see
+there and the Symphony browser extension reads from the page; your other topics stay), and turns on
+secret scanning and push protection where your plan and visibility allow it, then revokes the Setup
+App's token and uninstalls the Setup App when the repository was its only one. When you ticked
+"Merge the pull request for me", the run merges it or arms auto-merge. Everything else lands only
+when you merge. Closing the pull request instead leaves the labels, the branch, the settings, the
+topic and the issue for you to undo. When the run could not open its pull request and nobody was on
+the form to tell, the App opens one issue in your repository saying why.
 
 The adoption's files come from the developer's private template repository, read with a token that
 holds Contents read on that one repository and is revoked right after the checkout; only the files

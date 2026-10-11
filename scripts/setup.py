@@ -16,7 +16,12 @@ hand:
      the template did not make may not have, so that rule would hold
      its default branch to a check that never runs;
   2. "Automatically delete head branches" and "Allow auto-merge";
-  3. secret scanning, then push protection, which GitHub accepts only
+  3. the repository topic symphony, the sign on the repository's page
+     that it is adopted: the About sidebar shows it to anyone, and the
+     Symphony browser extension reads it from the page to show "Ready
+     for Symphony" in place of "Migrate to Symphony" with no call to
+     GitHub; the topics the repository has stay;
+  4. secret scanning, then push protection, which GitHub accepts only
      once scanning is on; where the plan or the visibility offers
      neither, GitHub's answer is kept and the run goes on.
 
@@ -75,9 +80,13 @@ NOT_TRIED = "not-tried"
 # The settings, in the order they are applied and reported.
 RULESET = "ruleset"
 TOGGLES = "toggles"
+TOPIC = "topic"
 SECRET_SCANNING = "secret_scanning"
 PUSH_PROTECTION = "push_protection"
-SETTINGS = (RULESET, TOGGLES, SECRET_SCANNING, PUSH_PROTECTION)
+SETTINGS = (RULESET, TOGGLES, TOPIC, SECRET_SCANNING, PUSH_PROTECTION)
+# The topic an adopted repository carries, which the template's own
+# scripts/setup-repo.sh adds too.
+TOPIC_NAME = "symphony"
 # GitHub's message lands in the pull request, so it is one line and short.
 DETAIL_LENGTH = 300
 
@@ -251,6 +260,28 @@ def apply_toggles(github, repo, report):
         record(report, TOGGLES, FAILED, str(said))
 
 
+def apply_topic(github, repo, report):
+    """Add the topic symphony to the repository's topics. The PUT replaces
+    the whole list, so the list is read first and theirs go back with it;
+    a list that cannot be read is a refusal, since writing without it
+    would drop them. The topic is the page-visible sign of an adoption:
+    the About sidebar shows it to anyone, and the Symphony browser
+    extension reads it from the page to say "Ready for Symphony" without
+    a call to GitHub."""
+    try:
+        answer = github.call("GET", f"/repos/{repo}/topics")
+        names = answer.get("names") if isinstance(answer, dict) else None
+        if not isinstance(names, list):
+            raise GitHubError("GitHub's answer listed no topics")
+        if TOPIC_NAME in names:
+            record(report, TOPIC, DONE, "was there already")
+            return
+        github.call("PUT", f"/repos/{repo}/topics", {"names": [*names, TOPIC_NAME]})
+        record(report, TOPIC, DONE)
+    except GitHubError as said:
+        record(report, TOPIC, FAILED, str(said))
+
+
 def apply_scanning(github, repo, report):
     """Secret scanning, then push protection, which GitHub accepts only once
     scanning is on. A refusal is the plan or the visibility, not the
@@ -285,6 +316,7 @@ def apply_settings(github, repo, ruleset, mode):
     else:
         record(report, RULESET, FAILED, ruleset)
     apply_toggles(github, repo, report)
+    apply_topic(github, repo, report)
     apply_scanning(github, repo, report)
     return report
 
@@ -294,6 +326,7 @@ def apply_settings(github, repo, ruleset, mode):
 LOG_LINES = {
     RULESET: {DONE: "ruleset: created", EXISTS: "ruleset: exists, left as it is", FAILED: "ruleset: not created"},
     TOGGLES: {DONE: "delete head branches on merge, allow auto-merge: on", FAILED: "the two toggles: not changed"},
+    TOPIC: {DONE: "topic symphony: on", FAILED: "topic symphony: not set"},
     SECRET_SCANNING: {DONE: "secret scanning: on", FAILED: "secret scanning: not turned on"},
     PUSH_PROTECTION: {DONE: "push protection: on", FAILED: "push protection: not turned on",
                       NOT_TRIED: "push protection: not tried"},

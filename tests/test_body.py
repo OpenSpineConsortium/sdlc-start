@@ -18,7 +18,10 @@ from trees import SPEC, THEIR_FILES, adopt, apply, make_checkout, make_target, m
 PRIVATE_LINK = "github.com/OpenSpineConsortium/symphony-template"
 NO_GIT = {rel: text for rel, text in THEIR_FILES.items() if not rel.startswith(".git/")}
 RULES = "https://github.com/octo-org/widget/settings/rules"
-ALL_DONE = {"ruleset": "done", "toggles": "done", "secret_scanning": "done", "push_protection": "done"}
+ALL_DONE = {"ruleset": "done", "toggles": "done", "topic": "done", "secret_scanning": "done",
+            "push_protection": "done"}
+TOPIC_WHY = ("so the repository page says it is adopted and the Symphony browser extension's button reads Ready for"
+             " Symphony")
 
 
 def report(outcome="applied", states=ALL_DONE, details=None, mode="new", private=False, required_check=True):
@@ -214,7 +217,9 @@ class Body(unittest.TestCase):
                       " enabled, so it can merge once that is green; if the check never reports, or you close this"
                       f" pull request instead, remove the check from the ruleset, or the ruleset, at {RULES}.", body)
         self.assertIn("- Delete head branches on merge and allow auto-merge: on.", body)
+        self.assertIn(f"- The topic `symphony`: set, {TOPIC_WHY}; the topics you had stay.", body)
         self.assertIn("- Secret scanning and push protection: on.", body)
+        self.assertIn("the topic symphony, and secret scanning with push protection)", body)
         self.assertIn("uninstall it at https://github.com/settings/installations, since it holds Administration", body)
         body = self.body(settings=dict(report(), uninstalled=True))
         self.assertIn("The Setup App uninstalled itself once that was done, this repository being the only one its"
@@ -279,6 +284,26 @@ class Body(unittest.TestCase):
         self.assertIn("2. For what the Settings above could not do", body)
         self.assertNotIn("which turns auto-merge off again", body)
 
+    def test_the_topic_there_already_or_refused(self):
+        body = self.body(settings=report(details={"topic": "was there already"}))
+        self.assertIn(f"- The topic `symphony`: was there already, {TOPIC_WHY}.", body)
+        self.assertIn("applied in this run", body)
+        self.assertIn("2. The GitHub side is set up", body)
+        self.assertNotIn("the topics you had stay", body)
+        failed = dict(ALL_DONE, topic="failed")
+        body = self.body(settings=report(states=failed, details={"topic": "HTTP 403: no"}))
+        self.assertIn("- The topic `symphony`: not set (GitHub said: HTTP 403: no); add it with the gear beside About"
+                      f" on https://github.com/octo-org/widget, {TOPIC_WHY}.", body)
+        self.assertIn("was used in this run for the settings", body)
+        self.assertIn("2. For what the Settings above could not do", body)
+        self.assertIn("delete-on-merge and auto-merge, the topic symphony, secret scanning, the labels", body)
+        # A report that says nothing of the topic, from an older setup.py,
+        # reads as not set, with no words of GitHub's.
+        without = {key: state for key, state in ALL_DONE.items() if key != "topic"}
+        body = self.body(settings=report(states=without))
+        self.assertIn("- The topic `symphony`: not set; add it with the gear beside About", body)
+        self.assertNotIn("GitHub said", body)
+
     def test_secret_scanning_refused_is_usually_the_plan(self):
         states = dict(ALL_DONE, secret_scanning="failed", push_protection="not-tried")
         details = {"secret_scanning": "HTTP 422: Not available.", "push_protection": "secret scanning is not on"}
@@ -314,7 +339,8 @@ class Body(unittest.TestCase):
         body = self.body(THEIR_FILES, mode="existing", settings=report(outcome="not-installed", mode="existing"))
         self.assertIn("the settings the template's setup script applies", body)
         self.assertIn("Step 3 of the next steps protects the default branch; the two toggles are under"
-                      " https://github.com/octo-org/widget/settings and secret scanning with push protection under"
+                      " https://github.com/octo-org/widget/settings, the topic symphony is added with the gear beside"
+                      " About on https://github.com/octo-org/widget, and secret scanning with push protection under"
                       " https://github.com/octo-org/widget/settings/security_analysis, where the plan offers them.",
                       body)
         self.assertIn(f"3. Protect the default branch, and only it, at {RULES}", body)

@@ -6,7 +6,8 @@ the log is public, so it carries none. Each setting stands on its own: one
 GitHub refuses costs itself and nothing else. Mode existing drops the rule
 that requires the check, which a repository the template did not make has
 no job for, and a ruleset of the template's name that the repository has
-already is left as it is.
+already is left as it is. The topic symphony joins the topics the
+repository has and never replaces them.
 """
 
 import contextlib
@@ -45,6 +46,9 @@ RULESET = {
 TOGGLES = {"delete_branch_on_merge": True, "allow_auto_merge": True}
 SCANNING = {"security_and_analysis": {"secret_scanning": {"status": "enabled"}}}
 PUSH_PROTECTION = {"security_and_analysis": {"secret_scanning_push_protection": {"status": "enabled"}}}
+TOPICS = f"/repos/{REPO}/topics"
+# The topics the repository has before the run, which the PUT carries back.
+THEIR_TOPICS = ["tools"]
 REFUSED = (422, {"message": "Secret scanning is not available for this repository.",
                  "errors": [{"message": "Upgrade the plan."}]})
 
@@ -70,6 +74,8 @@ class FakeGitHub:
             status, answer = 200, {"private": False}
         elif (method, path) == ("GET", f"/repos/{REPO}/rulesets?includes_parents=false"):
             status, answer = 200, []
+        elif (method, path) == ("GET", TOPICS):
+            status, answer = 200, {"names": list(THEIR_TOPICS)}
         elif method == "POST":
             status, answer = 201, {"id": 1}
         else:
@@ -77,7 +83,7 @@ class FakeGitHub:
         return status, json.dumps(answer).encode("utf-8")
 
     def writes(self):
-        return [(method, path, body) for method, path, _, body in self.calls if method in ("POST", "PATCH")]
+        return [(method, path, body) for method, path, _, body in self.calls if method in ("POST", "PATCH", "PUT")]
 
 
 class Apply(unittest.TestCase):
@@ -112,6 +118,7 @@ class Apply(unittest.TestCase):
         self.assertEqual(github.writes(), [
             ("POST", f"/repos/{REPO}/rulesets", RULESET),
             ("PATCH", f"/repos/{REPO}", TOGGLES),
+            ("PUT", TOPICS, {"names": ["tools", "symphony"]}),
             ("PATCH", f"/repos/{REPO}", SCANNING),
             ("PATCH", f"/repos/{REPO}", PUSH_PROTECTION),
         ])
@@ -119,11 +126,13 @@ class Apply(unittest.TestCase):
         self.assertEqual((report["outcome"], report["mode"], report["private"]), ("applied", "new", False))
         self.assertEqual((report["ruleset_name"], report["required_check"]), ("Protect the default branch", True))
         self.assertEqual(self.states(report), {
-            "ruleset": "done", "toggles": "done", "secret_scanning": "done", "push_protection": "done",
+            "ruleset": "done", "toggles": "done", "topic": "done", "secret_scanning": "done", "push_protection": "done",
         })
+        self.assertEqual(list(report["settings"]), list(setup.SETTINGS))
         self.assertEqual(out.splitlines(), [
             "settings: ruleset: created",
             "settings: delete head branches on merge, allow auto-merge: on",
+            "settings: topic symphony: on",
             "settings: secret scanning: on",
             "settings: push protection: on",
         ])
@@ -183,14 +192,15 @@ class Apply(unittest.TestCase):
         and a 3xx is not done."""
         class Github(FakeGitHub):
             def __call__(self, method, url, headers, body):
-                if method in ("POST", "PATCH"):
+                if method in ("POST", "PATCH", "PUT"):
                     self.calls.append((method, url.removeprefix(setup.API), headers, body))
                     return 307, b'{"message": "Temporary Redirect"}'
                 return super().__call__(method, url, headers, body)
 
         _, report, out, _ = self.apply(Github())
         self.assertEqual(self.states(report), {
-            "ruleset": "failed", "toggles": "failed", "secret_scanning": "failed", "push_protection": "not-tried",
+            "ruleset": "failed", "toggles": "failed", "topic": "failed", "secret_scanning": "failed",
+            "push_protection": "not-tried",
         })
         self.assertEqual(report["settings"]["toggles"]["detail"], "HTTP 307: Temporary Redirect")
         self.assertNotIn("on", out.splitlines()[1].split(": ")[-1])
@@ -235,7 +245,8 @@ class Apply(unittest.TestCase):
         code, report, out, _ = self.apply(github)
         self.assertEqual(code, 0)
         self.assertEqual(self.states(report), {
-            "ruleset": "done", "toggles": "done", "secret_scanning": "failed", "push_protection": "not-tried",
+            "ruleset": "done", "toggles": "done", "topic": "done", "secret_scanning": "failed",
+            "push_protection": "not-tried",
         })
         self.assertEqual(report["settings"]["secret_scanning"]["detail"],
                          "HTTP 422: Secret scanning is not available for this repository. Upgrade the plan.")
@@ -260,6 +271,62 @@ class Apply(unittest.TestCase):
         self.assertEqual(report["settings"]["push_protection"]["detail"], "HTTP 422: Push protection is not available.")
         self.assertIn("settings: push protection: not turned on", out)
 
+    def test_the_topic_joins_the_ones_the_repository_has(self):
+        """The PUT replaces the whole list, so the list is read first and
+        theirs go back with the topic; a topic added carries no detail."""
+        github = FakeGitHub()
+        _, report, out, _ = self.apply(github)
+        calls = [(method, path) for method, path, _, _ in github.calls]
+        self.assertLess(calls.index(("GET", TOPICS)), calls.index(("PUT", TOPICS)))
+        self.assertIn(("PUT", TOPICS, {"names": ["tools", "symphony"]}), github.writes())
+        self.assertEqual(report["settings"]["topic"], {"state": "done", "detail": ""})
+        self.assertIn("settings: topic symphony: on", out)
+
+    def test_a_topic_there_already_is_recorded_and_not_written_again(self):
+        github = FakeGitHub({("GET", TOPICS): (200, {"names": ["symphony", "tools"]})})
+        _, report, out, _ = self.apply(github)
+        self.assertNotIn("PUT", [method for method, _, _ in github.writes()])
+        self.assertEqual(report["settings"]["topic"], {"state": "done", "detail": "was there already"})
+        self.assertIn("settings: topic symphony: on", out)
+
+    def test_the_topic_refused_costs_itself_and_keeps_githubs_words(self):
+        class Github(FakeGitHub):
+            def __call__(self, method, url, headers, body):
+                if method == "PUT":
+                    self.calls.append((method, url.removeprefix(setup.API), headers, body))
+                    return 403, b'{"message": "Resource not accessible by integration"}'
+                return super().__call__(method, url, headers, body)
+
+        code, report, out, _ = self.apply(Github())
+        self.assertEqual(code, 0)
+        self.assertEqual(self.states(report), {
+            "ruleset": "done", "toggles": "done", "topic": "failed", "secret_scanning": "done",
+            "push_protection": "done",
+        })
+        self.assertEqual(report["settings"]["topic"]["detail"], "HTTP 403: Resource not accessible by integration")
+        self.assertIn("settings: topic symphony: not set", out)
+        self.assertNotIn("integration", out)
+
+    def test_topics_that_cannot_be_read_are_not_written(self):
+        """Writing without the list would drop theirs, so a list that
+        cannot be read, or an answer without one, is a refusal and no PUT."""
+        for answer in ((403, {"message": "no"}), (200, {}), (200, {"names": "symphony"}), (200, [])):
+            with self.subTest(answer=answer):
+                github = FakeGitHub({("GET", TOPICS): answer})
+                _, report, out, _ = self.apply(github)
+                self.assertNotIn("PUT", [method for method, _, _ in github.writes()])
+                self.assertEqual(self.states(report)["topic"], "failed")
+                self.assertIn("settings: topic symphony: not set", out)
+        _, report, _, _ = self.apply(FakeGitHub({("GET", TOPICS): (200, {})}))
+        self.assertEqual(report["settings"]["topic"]["detail"], "GitHub's answer listed no topics")
+
+    def test_the_log_has_a_line_for_every_setting_done_or_refused(self):
+        self.assertEqual(setup.SETTINGS, ("ruleset", "toggles", "topic", "secret_scanning", "push_protection"))
+        for key in setup.SETTINGS:
+            with self.subTest(setting=key):
+                self.assertIn(setup.DONE, setup.LOG_LINES[key])
+                self.assertIn(setup.FAILED, setup.LOG_LINES[key])
+
     def test_a_token_github_refuses_fails_each_setting_and_nothing_else(self):
         class Github(FakeGitHub):
             def __call__(self, method, url, headers, body):
@@ -270,14 +337,16 @@ class Apply(unittest.TestCase):
         code, report, out, err = self.apply(github)
         self.assertEqual((code, err), (0, ""))
         self.assertEqual(self.states(report), {
-            "ruleset": "failed", "toggles": "failed", "secret_scanning": "failed", "push_protection": "not-tried",
+            "ruleset": "failed", "toggles": "failed", "topic": "failed", "secret_scanning": "failed",
+            "push_protection": "not-tried",
         })
         self.assertIsNone(report["private"])
-        for key in ("ruleset", "toggles", "secret_scanning"):
+        for key in ("ruleset", "toggles", "topic", "secret_scanning"):
             self.assertEqual(report["settings"][key]["detail"], "HTTP 403: Resource not accessible by integration")
         self.assertEqual(out.splitlines(), [
             "settings: ruleset: not created",
             "settings: the two toggles: not changed",
+            "settings: topic symphony: not set",
             "settings: secret scanning: not turned on",
             "settings: push protection: not tried",
         ])
@@ -319,7 +388,7 @@ class Apply(unittest.TestCase):
         self.assertEqual(report["settings"]["ruleset"]["detail"],
                          "the template's ruleset file could not be read, so no ruleset was made")
         self.assertIsNone(report["ruleset_name"])
-        self.assertEqual([method for method, _, _ in github.writes()], ["PATCH", "PATCH", "PATCH"])
+        self.assertEqual([method for method, _, _ in github.writes()], ["PATCH", "PUT", "PATCH", "PATCH"])
         self.assertIn("settings: ruleset: not created", out)
         self.ruleset.write_text('{"name": "x"}\n', encoding="utf-8")
         code, report, _, _ = self.apply(FakeGitHub())
