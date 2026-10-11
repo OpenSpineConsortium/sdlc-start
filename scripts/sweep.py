@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Find the repositories the App is installed on that have no adoption yet.
 
-Installing the OpenSpine SDLC App on a repository is the request: GitHub
+Installing the Symphony App on a repository is the request: GitHub
 tells only a webhook about an installation, and no workflow runs on one,
 so .github/workflows/sweep.yml runs this on a schedule instead. With the
 App's JWT (scripts/jwt.sh) it reads the App's own record, for the login of
@@ -43,15 +43,15 @@ A repository is left out, each reason counted, when
               has it;
   no commit   its default branch is not there yet, so there is nothing to
               branch from; the README says a README is enough;
-  offered     the branch sdlc/adopt is there: an adoption was offered, and
+  offered     the branch symphony/adopt is there: an adoption was offered, and
               its pull request is open, merged, or closed on purpose;
   adopted     docs/agents/PROTOCOL.md is on its default branch, by the form
               or by "Use this template";
-  opted out   .github/sdlc-adopt on its default branch says off: the App is
+  opted out   .github/symphony-adopt on its default branch says off: the App is
               wanted for the metrics alone;
-  declined    a pull request from sdlc/adopt was closed and the branch is
+  declined    a pull request from symphony/adopt was closed and the branch is
               gone since: the offer was declined, and is not made again;
-  refused     an issue titled "OpenSpine SDLC could not open its pull
+  refused     an issue titled "Symphony could not open its pull
               request" (REFUSAL_TITLE) is open, opened by the App's bot:
               the adoption run on this path could not push its branch,
               the repository's rules having refused it, and said so there
@@ -110,17 +110,22 @@ API_VERSION = "2022-11-28"
 USER_AGENT = "sdlc-start-sweep"
 OWN = "OpenSpineConsortium"
 PER_PAGE = 100
-ADOPT_REF = "refs/heads/sdlc/adopt"
-ADOPT_BRANCH = "sdlc/adopt"
+ADOPT_REF = "refs/heads/symphony/adopt"
+ADOPT_BRANCH = "symphony/adopt"
+# The names before the rename to Symphony, still read, since a repository
+# adopted before it carries them.
+OLD_ADOPT_REF = "refs/heads/sdlc/adopt"
+OLD_ADOPT_BRANCH = "sdlc/adopt"
+OLD_OPT_OUT = ".github/sdlc-adopt"
 PROTOCOL_TEXT = "docs/agents/PROTOCOL.md"
-OPT_OUT = ".github/sdlc-adopt"
+OPT_OUT = ".github/symphony-adopt"
 # The form's label for the repository, a heading of the issue's body.
 REPOSITORY_HEADING = "### Repository"
 NO_RESPONSE = "_No response_"
 # The title of the issue the adoption run opens, as the App, when the
 # repository's rules refused its push; .github/workflows/adopt-run.yml
 # uses the same words, and the sweep skips the repository while it is open.
-REFUSAL_TITLE = "OpenSpine SDLC could not open its pull request"
+REFUSAL_TITLE = "Symphony could not open its pull request"
 GRACE_MINUTES = 30
 BUDGET_SECONDS = 420
 # The workflow's schedule: the starting installation moves along with it.
@@ -407,7 +412,7 @@ def repo_path(repository):
 
 def unadopted(github, repositories):
     """The repositories among these that have a commit and no adoption yet:
-    no branch sdlc/adopt, no docs/agents/PROTOCOL.md, no opt-out. The
+    no branch symphony/adopt, no docs/agents/PROTOCOL.md, no opt-out. The
     form's workflow asks this of an installation that reaches several,
     to find the one the person meant; a GitHubError is the caller's."""
     free = []
@@ -459,9 +464,12 @@ def has_commit(github, repository):
 
 def has_adopt_branch(github, repository):
     """matching-refs matches by prefix, so the ref is checked to be exactly
-    sdlc/adopt and not a branch that merely starts so."""
-    refs = github.listed(f"{repo_path(repository)}/git/matching-refs/heads/{ADOPT_BRANCH}")
-    return any(isinstance(ref, dict) and ref.get("ref") == ADOPT_REF for ref in refs)
+    symphony/adopt, or its old name, and not a branch that merely starts so."""
+    for branch, ref in ((ADOPT_BRANCH, ADOPT_REF), (OLD_ADOPT_BRANCH, OLD_ADOPT_REF)):
+        refs = github.listed(f"{repo_path(repository)}/git/matching-refs/heads/{branch}")
+        if any(isinstance(found, dict) and found.get("ref") == ref for found in refs):
+            return True
+    return False
 
 
 def is_adopted(github, repository):
@@ -482,23 +490,29 @@ def switch_word(answer):
 
 
 def opted_out(github, repository):
-    try:
-        answer = github.call("GET", f"{repo_path(repository)}/contents/{OPT_OUT}")
-    except GitHubError as refusal:
-        if refusal.status == 404:
-            return False
-        raise
-    return switch_word(answer) == "off"
+    """The switch under its name or its old one; either saying off is out."""
+    for path in (OPT_OUT, OLD_OPT_OUT):
+        try:
+            answer = github.call("GET", f"{repo_path(repository)}/contents/{path}")
+        except GitHubError as refusal:
+            if refusal.status == 404:
+                continue
+            raise
+        if switch_word(answer) == "off":
+            return True
+    return False
 
 
 def was_declined(github, repository):
-    """Whether a pull request from sdlc/adopt was closed. By the time this
+    """Whether a pull request from symphony/adopt was closed. By the time this
     is asked the branch is gone (else the repository read as offered) and
     the pull request was not merged (else as adopted), so the offer was
     closed on purpose; one such pull request is enough to know."""
     owner = repository["owner"]["login"]
-    path = f"{repo_path(repository)}/pulls?state=closed&head={owner}:{ADOPT_BRANCH}&per_page=1"
-    return bool(github.listed(path))
+    for branch in (ADOPT_BRANCH, OLD_ADOPT_BRANCH):
+        if github.listed(f"{repo_path(repository)}/pulls?state=closed&head={owner}:{branch}&per_page=1"):
+            return True
+    return False
 
 
 def is_refusal(issue):

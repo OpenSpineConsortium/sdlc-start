@@ -4,7 +4,7 @@ name: Adopt
 # request in the requester's own repository. The template,
 # OpenSpineConsortium/sdlc-template, stays internal to its enterprise, so
 # nobody outside it can press "Use this template"; this public repository
-# is the front door instead. A person installs the OpenSpine SDLC App on
+# is the front door instead. A person installs the Symphony App on
 # their repository and either opens the form .github/ISSUE_TEMPLATE/adopt.yml,
 # which labels the issue adopt and starts this workflow, or does nothing
 # more and lets the sweep (sweep.yml) find the installation. The install
@@ -93,7 +93,7 @@ jobs:
           ISSUE_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$APP_ID" ] || [ "$KEY_SET" != true ]; then
-            bash start/scripts/refuse.sh --keep-open "Nothing was done yet: this front door has not been given the OpenSpine SDLC App by its owner. This issue stays open, and its run can be started again once that is done."
+            bash start/scripts/refuse.sh --keep-open "Nothing was done yet: this front door has not been given the Symphony App by its owner. This issue stays open, and its run can be started again once that is done."
           fi
 
       - name: Read the form
@@ -133,7 +133,7 @@ jobs:
           # no mask exists in this job and nothing printed can differ; and
           # each refusal waits for the same moment, so the step's length
           # says nothing.
-          refusal="Nothing was done: the installation this form carried is not the OpenSpine SDLC App's or its Setup App's, or it reaches no repository with no adoption yet, or none of those that your account administers. Open a new request with the form naming the repository as OWNER/NAME, as an administrator of it; this one is closed."
+          refusal="Nothing was done: the installation this form carried is not the Symphony App's or its Setup App's, or it reaches no repository with no adoption yet, or none of those that your account administers. Open a new request with the form naming the repository as OWNER/NAME, as an administrator of it; this one is closed."
           deadline=$((SECONDS + 25))
           refuse_alike() {
             sleep $((deadline > SECONDS ? deadline - SECONDS : 0))
@@ -211,7 +211,7 @@ jobs:
             exit 1
           fi
           if [ "$permission" != admin ]; then
-            bash start/scripts/refuse.sh "Nothing was done: the OpenSpine SDLC App is not installed on $TARGET, or not given that repository, or your account is not one of its administrators. Install the App at https://github.com/apps/openspine-sdlc/installations/new and choose the repository, then open a new request with the form as an administrator of it; this one is closed."
+            bash start/scripts/refuse.sh "Nothing was done: the Symphony App is not installed on $TARGET, or not given that repository, or your account is not one of its administrators. Install the App at https://github.com/apps/openspine-sdlc/installations/new and choose the repository, then open a new request with the form as an administrator of it; this one is closed."
           fi
 
       # What the second job reads: a refusal here means nothing to adopt.
@@ -295,8 +295,8 @@ jobs:
             merged=" Each is merged, or has auto-merge armed where the repository's rules require its check; one the run could not merge is left to you, and the pull request stays open."
           fi
           if [ "$RESULT" = success ]; then
-            gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Done: $opened, from the branch sdlc/adopt; each lists every file it brings and the steps that are left, and a new repository has the issue \"Set up this project\" too.$merged This issue is closed."
+            gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Done: $opened, from the branch symphony/adopt; each lists every file it brings and the steps that are left, and a new repository has the issue \"Set up this project\" too.$merged This issue is closed."
             gh issue close "$ISSUE" --repo "$GITHUB_REPOSITORY" --reason completed
           else
-            gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "At least one of the $COUNT adoptions stopped with a failure; the others may be done. The run is $RUN. This issue stays open for the owner of this repository to look at. If a run pushed a branch sdlc/adopt to a repository before it stopped, delete that branch before a new request."
+            gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "At least one of the $COUNT adoptions stopped with a failure; the others may be done. The run is $RUN. This issue stays open for the owner of this repository to look at. If a run pushed a branch symphony/adopt to a repository before it stopped, delete that branch before a new request."
           fi

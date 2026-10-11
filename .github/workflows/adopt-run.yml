@@ -35,7 +35,7 @@ name: Adopt (run)
 # out at depth one on its qualified default branch, git's messages stay
 # out of this public log, the Setup App's token is minted after the push
 # and revoked right after the settings, and two requests for one
-# repository are settled by the push of sdlc/adopt, which only one of
+# repository are settled by the push of symphony/adopt, which only one of
 # them can make.
 
 on:
@@ -107,7 +107,7 @@ jobs:
     timeout-minutes: 15
     # Keyed on the request and the repository, so an installation's several
     # repositories run side by side and two requests for one repository
-    # both run, the push of sdlc/adopt settling them; on the sweep's path
+    # both run, the push of symphony/adopt settling them; on the sweep's path
     # two dispatches for one repository are the same work.
     concurrency:
       group: adopt-run-${{ inputs.issue || 'sweep' }}-${{ inputs.repository_id || inputs.repository }}
@@ -223,7 +223,7 @@ jobs:
           ISSUE_TOKEN: ${{ github.token }}
         run: |
           if [ "$TOKEN_OUTCOME" != success ]; then
-            bash start/scripts/refuse.sh "Nothing was done: the App's installation for $SAID does not grant everything the pull request needs. The usual reason is that it has not yet accepted the permission Workflows: Read and write, which a pull request that adds files under .github/workflows needs; an owner of the account accepts it on the page of installed GitHub Apps, OpenSpine SDLC, Review request. Then open a new request with the form; this one is closed."
+            bash start/scripts/refuse.sh "Nothing was done: the App's installation for $SAID does not grant everything the pull request needs. The usual reason is that it has not yet accepted the permission Workflows: Read and write, which a pull request that adds files under .github/workflows needs; an owner of the account accepts it on the page of installed GitHub Apps, Symphony, Review request. Then open a new request with the form; this one is closed."
             exit 0
           fi
           gh api "repos/$TARGET" --jq '"default_branch=" + .default_branch, "owner_type=" + .owner.type' > "$RUNNER_TEMP/target"
@@ -256,13 +256,13 @@ jobs:
             bash start/scripts/refuse.sh "Nothing was done: $SAID has no commit yet, and a pull request needs a branch to go into. Add a first commit (a README is enough), then open a new request with the form; this one is closed."
             exit 0
           fi
-          taken="$(gh api "repos/$TARGET/git/matching-refs/heads/sdlc/adopt" --jq '[.[] | select(.ref == "refs/heads/sdlc/adopt")] | length')"
+          taken="$(for b in symphony/adopt sdlc/adopt; do gh api "repos/$TARGET/git/matching-refs/heads/$b" --jq "[.[] | select(.ref == \"refs/heads/$b\")] | length" 2>/dev/null || echo 0; done | awk '{s+=$1} END {print s+0}')"
           if [ "$taken" != 0 ]; then
-            open="$(gh api "repos/$TARGET/pulls?state=open&head=$OWNER:sdlc/adopt" --jq 'length')"
+            open="$(for b in symphony/adopt sdlc/adopt; do gh api "repos/$TARGET/pulls?state=open&head=$OWNER:$b" --jq 'length' 2>/dev/null || echo 0; done | awk '{s+=$1} END {print s+0}')"
             if [ "$open" != 0 ]; then
-              bash start/scripts/refuse.sh "Nothing was done: $SAID already has the adoption pull request open, from the branch sdlc/adopt${PULLS_LINK:+ ($PULLS_LINK)}. Review and merge that one, or close it and delete its branch sdlc/adopt before a new request; this one is closed."
+              bash start/scripts/refuse.sh "Nothing was done: $SAID already has the adoption pull request open, from the branch symphony/adopt${PULLS_LINK:+ ($PULLS_LINK)}. Review and merge that one, or close it and delete its branch symphony/adopt before a new request; this one is closed."
             else
-              bash start/scripts/refuse.sh "Nothing was done: $SAID already has a branch sdlc/adopt, from an earlier request. Delete it${BRANCHES_LINK:+ at $BRANCHES_LINK}, then open a new request with the form; this one is closed."
+              bash start/scripts/refuse.sh "Nothing was done: $SAID already has a branch symphony/adopt (or sdlc/adopt, its old name), from an earlier request. Delete it${BRANCHES_LINK:+ at $BRANCHES_LINK}, then open a new request with the form; this one is closed."
             fi
           fi
           # The form may leave the kind to the run: read from the tree as
@@ -368,7 +368,7 @@ jobs:
       # use; the remote URL never holds the token. git's messages name files
       # and commits, so they go to a file of the run and not to this public
       # log, which gets a fixed line instead.
-      - name: Commit on sdlc/adopt and push it as the App
+      - name: Commit on symphony/adopt and push it as the App
         if: env.REFUSED != 'true'
         env:
           GH_TOKEN: ${{ steps.target-token.outputs.token }}
@@ -383,7 +383,7 @@ jobs:
           cd target
           git config user.name "$bot"
           git config user.email "${bot_id}+${bot}@users.noreply.github.com"
-          git switch --quiet -c sdlc/adopt
+          git switch --quiet -c symphony/adopt
           # --force: a file the adoption wrote goes in even where the
           # repository's .gitignore would leave it out, so the pull request
           # holds what its body lists; the checkout is fresh, so nothing
@@ -399,7 +399,7 @@ jobs:
             exit 0
           fi
           printf '%s\n\n%s\n' "$(cat "$RUNNER_TEMP/title")" \
-            "Opened by the OpenSpine SDLC App at the request of an administrator of this repository; the pull request lists every file and what is left to do." \
+            "Opened by the Symphony App at the request of an administrator of this repository; the pull request lists every file and what is left to do." \
             > "$RUNNER_TEMP/message"
           if ! git commit --quiet --file "$RUNNER_TEMP/message" > /dev/null 2>> "$said"; then
             echo "git commit failed; its message is kept out of this public log"
@@ -407,16 +407,16 @@ jobs:
           fi
           basic="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           echo "::add-mask::$basic"
-          if git -c http.extraheader="AUTHORIZATION: basic $basic" push --quiet origin HEAD:refs/heads/sdlc/adopt > /dev/null 2>> "$said"; then
+          if git -c http.extraheader="AUTHORIZATION: basic $basic" push --quiet origin HEAD:refs/heads/symphony/adopt > /dev/null 2>> "$said"; then
             echo "PUSHED=true" >> "$GITHUB_ENV"
           else
             # Two requests for one repository at once: the first push made
             # the branch, and this one was turned away as not fast-forward.
-            taken="$(gh api "repos/$TARGET/git/matching-refs/heads/sdlc/adopt" --jq '[.[] | select(.ref == "refs/heads/sdlc/adopt")] | length' 2>/dev/null || echo 0)"
+            taken="$(for b in symphony/adopt sdlc/adopt; do gh api "repos/$TARGET/git/matching-refs/heads/$b" --jq "[.[] | select(.ref == \"refs/heads/$b\")] | length" 2>/dev/null || echo 0; done | awk '{s+=$1} END {print s+0}')"
             if [ "$taken" != 0 ]; then
-              bash "$refuse" "Nothing was done: another request for $SAID pushed the branch sdlc/adopt while this one ran, and its pull request is the one to review${PULLS_LINK:+ ($PULLS_LINK)}; this issue is closed."
+              bash "$refuse" "Nothing was done: another request for $SAID pushed the branch symphony/adopt while this one ran, and its pull request is the one to review${PULLS_LINK:+ ($PULLS_LINK)}; this issue is closed."
             else
-              bash "$refuse" "Nothing was done: GitHub refused the push of the branch sdlc/adopt to $SAID; a ruleset or a branch protection there may stand in its way. Let the App push that branch, then open a new request with the form; this one is closed."
+              bash "$refuse" "Nothing was done: GitHub refused the push of the branch symphony/adopt to $SAID; a ruleset or a branch protection there may stand in its way. Let the App push that branch, then open a new request with the form; this one is closed."
             fi
           fi
 
@@ -435,7 +435,7 @@ jobs:
           TARGET: ${{ env.TARGET }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          taken="$(gh api "repos/$TARGET/git/matching-refs/heads/sdlc/adopt" --jq '[.[] | select(.ref == "refs/heads/sdlc/adopt")] | length' 2>/dev/null || echo 0)"
+          taken="$(for b in symphony/adopt sdlc/adopt; do gh api "repos/$TARGET/git/matching-refs/heads/$b" --jq "[.[] | select(.ref == \"refs/heads/$b\")] | length" 2>/dev/null || echo 0; done | awk '{s+=$1} END {print s+0}')"
           if [ "$taken" != 0 ] && [ "${PUSHED:-}" != true ]; then
             echo "another run holds the branch; nothing to tell"
             exit 0
@@ -444,21 +444,21 @@ jobs:
           # pull request, which the sweep would read as offered for good:
           # the issue says to delete it.
           if [ ! -f "$RUNNER_TEMP/refusal" ]; then
-            printf '%s\n' "something went wrong in the run that tried, which stopped; the front door's owner can read the run at $RUN. Delete the branch sdlc/adopt here if the run pushed it before it stopped, then close this issue and the front door tries again." > "$RUNNER_TEMP/refusal"
+            printf '%s\n' "something went wrong in the run that tried, which stopped; the front door's owner can read the run at $RUN. Delete the branch symphony/adopt here if the run pushed it before it stopped, then close this issue and the front door tries again." > "$RUNNER_TEMP/refusal"
           fi
-          title="OpenSpine SDLC could not open its pull request"
+          title="Symphony could not open its pull request"
           # The same question scripts/sweep.py asks, the same way: the
           # App's own open issues, by its bot's login, the one with this
           # title and not a pull request.
           open="$(gh api "repos/$TARGET/issues?state=open&creator=openspine-sdlc%5Bbot%5D&per_page=100" \
-            --jq '[.[] | select(.title == "OpenSpine SDLC could not open its pull request" and .pull_request == null)] | length' 2>/dev/null || echo 0)"
+            --jq '[.[] | select(.title == "Symphony could not open its pull request" and .pull_request == null)] | length' 2>/dev/null || echo 0)"
           if [ "$open" != 0 ]; then
             echo "the repository has the issue already"
             exit 0
           fi
           printf '%s\n\n%s\n' \
-            "The OpenSpine SDLC App was installed on this repository, which its front door (https://github.com/OpenSpineConsortium/sdlc-start) takes as a request for its adoption pull request, and the run that tried stopped: $(cat "$RUNNER_TEMP/refusal" 2>/dev/null || echo "see the front door's README")" \
-            "Where it says to open a new request with the form, you may; or put right what stood in the way and close this issue, and the front door tries again within about ten minutes. To decline the adoption and keep the App, write off in .github/sdlc-adopt on the default branch." \
+            "The Symphony App was installed on this repository, which its front door (https://github.com/OpenSpineConsortium/sdlc-start) takes as a request for its adoption pull request, and the run that tried stopped: $(cat "$RUNNER_TEMP/refusal" 2>/dev/null || echo "see the front door's README")" \
+            "Where it says to open a new request with the form, you may; or put right what stood in the way and close this issue, and the front door tries again within about ten minutes. To decline the adoption and keep the App, write off in .github/symphony-adopt on the default branch." \
             > "$RUNNER_TEMP/refusal-issue.md"
           gh issue create --repo "$TARGET" --title "$title" --body-file "$RUNNER_TEMP/refusal-issue.md" > /dev/null
           echo "the repository was told"
@@ -659,7 +659,7 @@ jobs:
           DEFAULT_BRANCH: ${{ steps.target.outputs.default_branch }}
         run: |
           cd target
-          gh pr create --repo "$TARGET" --base "$DEFAULT_BRANCH" --head sdlc/adopt \
+          gh pr create --repo "$TARGET" --base "$DEFAULT_BRANCH" --head symphony/adopt \
             --title "$(cat "$RUNNER_TEMP/title")" --body-file "$RUNNER_TEMP/body.md" > "$RUNNER_TEMP/pull-request"
           echo "opened"
 
@@ -766,7 +766,7 @@ jobs:
             auto) merged=" Auto-merge is armed on it, as you asked: it merges when its check passes." ;;
             no) merged=" The run could not merge it, so it is yours to merge." ;;
           esac
-          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Done: the pull request is open in $SAID, from the branch sdlc/adopt${PULLS_LINK:+: $PULLS_LINK}.$merged It lists every file it brings and the steps that are left.$issue$settings This issue is closed."
+          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Done: the pull request is open in $SAID, from the branch symphony/adopt${PULLS_LINK:+: $PULLS_LINK}.$merged It lists every file it brings and the steps that are left.$issue$settings This issue is closed."
           gh issue close "$ISSUE" --repo "$GITHUB_REPOSITORY" --reason completed
 
       # The front door's own Setup App not working is the owner's to fix,
@@ -806,4 +806,4 @@ jobs:
           if [ "$SETUP_MINTED" = success ]; then
             settings=" This run had made the Setup App's token before it stopped, so some of the repository's settings may be applied: review $SETTINGS_WORDS, and uninstall the Setup App now."
           fi
-          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Something went wrong while handling this request, and it stopped; the run is $RUN. This issue stays open for the owner of this repository to look at. If the run pushed a branch sdlc/adopt to your repository before it stopped, delete that branch before a new request.$settings"
+          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Something went wrong while handling this request, and it stopped; the run is $RUN. This issue stays open for the owner of this repository to look at. If the run pushed a branch symphony/adopt to your repository before it stopped, delete that branch before a new request.$settings"

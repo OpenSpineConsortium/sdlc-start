@@ -81,7 +81,7 @@ LIBRARY = ("tools/VENDORED", "tools/sdlc_protocol/__init__.py", "tools/sdlc_prot
 
 # The protocol's files mode existing adds to a repository that has none of them.
 PROTOCOL_ADDED = {
-    ".github/sdlc-metrics",
+    ".github/symphony-metrics",
     ".github/workflows/board.yml",
     ".github/workflows/tidy.yml",
     "docs/agents/PROTOCOL.md",

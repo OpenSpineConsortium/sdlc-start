@@ -82,7 +82,7 @@ class TheForm(unittest.TestCase):
         """The person is assumed to know what they are doing: a few
         sentences, which still say what is shared, where the switch is,
         that the issue is public and where the App is installed."""
-        for words in ("never code, text or names", ".github/sdlc-metrics", "This issue is public", "installations/new",
+        for words in ("never code, text or names", ".github/symphony-metrics", "This issue is public", "installations/new",
                       "Press Create", "each repository the installation reaches", "uninstalls itself"):
             self.assertIn(words, self.text)
         prose = re.search(r"value: \|\n((?:        .*\n)+)", self.text).group(1)
@@ -255,7 +255,7 @@ class TheWorkflows(unittest.TestCase):
 
     def test_the_settings_are_applied_after_the_push_and_before_the_pull_request(self):
         text = (ROOT / ".github/workflows/adopt-run.yml").read_text(encoding="utf-8")
-        pushed = text.index("name: Commit on sdlc/adopt and push it as the App")
+        pushed = text.index("name: Commit on symphony/adopt and push it as the App")
         applied = text.index("name: Apply the repository's settings where the Setup App is installed")
         revoked = text.index("name: Revoke the Setup App's token")
         written = text.index("name: Write the pull request's text")

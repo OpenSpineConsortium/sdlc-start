@@ -76,7 +76,7 @@ REPOSITORY = repository()
 ORG_REPOSITORY = repository("octo-org/gadget", 5151, "Organization")
 # The two checks that read what an earlier offer left behind, for the
 # default repository.
-DECLINED = "pulls?state=closed&head=mona:sdlc/adopt&per_page=1"
+DECLINED = "pulls?state=closed&head=mona:symphony/adopt&per_page=1"
 REFUSED = f"issues?state=open&creator={BOT}&per_page=100"
 
 
@@ -133,7 +133,7 @@ class FakeGitHub:
 
     def default(self, method, path):
         if path == APP:
-            return 200, {"id": 1, "slug": SLUG, "name": "OpenSpine SDLC"}
+            return 200, {"id": 1, "slug": SLUG, "name": "Symphony"}
         if path == INSTALLATIONS:
             return 200, self.installations
         if method == "POST" and path.startswith("/app/installations/") and path.endswith("/access_tokens"):
@@ -144,7 +144,7 @@ class FakeGitHub:
             return 204, None
         if "/branches/" in path:
             return 200, {"name": "main"}
-        if "/git/matching-refs/heads/sdlc/adopt" in path:
+        if "/git/matching-refs/heads/" in path:
             return 200, []
         if "/contents/" in path:
             return NOT_FOUND
@@ -261,7 +261,7 @@ class Sweep(unittest.TestCase):
         empty = dict(repository("mona/empty", 9), by_id=True)
         free = dict(REPOSITORY, by_id=True)
         github = FakeGitHub({
-            ("GET", "/repositories/7/git/matching-refs/heads/sdlc/adopt"): (200, [{"ref": "refs/heads/sdlc/adopt"}]),
+            ("GET", "/repositories/7/git/matching-refs/heads/symphony/adopt"): (200, [{"ref": "refs/heads/symphony/adopt"}]),
             ("GET", "/repositories/8/contents/docs/agents/PROTOCOL.md"): (200, {"type": "file"}),
             ("GET", "/repositories/9/branches/main"): NOT_FOUND,
         })
@@ -348,11 +348,11 @@ class Sweep(unittest.TestCase):
         answers = {("GET", repo_path(REPOSITORY, "branches/main")): NOT_FOUND}
         self.assertEqual(self.skipped(None, REPOSITORY, answers), "1 no commit")
 
-    def test_a_repository_with_the_branch_sdlc_adopt_is_skipped(self):
-        matching = ("GET", repo_path(REPOSITORY, "git/matching-refs/heads/sdlc/adopt"))
-        exact = {matching: (200, [{"ref": "refs/heads/sdlc/adopt-again"}, {"ref": "refs/heads/sdlc/adopt"}])}
+    def test_a_repository_with_the_branch_symphony_adopt_is_skipped(self):
+        matching = ("GET", repo_path(REPOSITORY, "git/matching-refs/heads/symphony/adopt"))
+        exact = {matching: (200, [{"ref": "refs/heads/symphony/adopt-again"}, {"ref": "refs/heads/symphony/adopt"}])}
         self.assertEqual(self.skipped(None, REPOSITORY, exact), "1 offered")
-        prefix_only = {matching: (200, [{"ref": "refs/heads/sdlc/adopt-again"}])}
+        prefix_only = {matching: (200, [{"ref": "refs/heads/symphony/adopt-again"}])}
         self.candidate(prefix_only)
 
     def test_an_adopted_repository_is_skipped(self):
@@ -360,7 +360,7 @@ class Sweep(unittest.TestCase):
         self.assertEqual(self.skipped(None, REPOSITORY, answers), "1 adopted")
 
     def switch(self, content, encoding="base64"):
-        return {("GET", repo_path(REPOSITORY, "contents/.github/sdlc-adopt")):
+        return {("GET", repo_path(REPOSITORY, "contents/.github/symphony-adopt")):
                 (200, {"name": "sdlc-adopt", "encoding": encoding, "content": content})}
 
     def test_a_repository_whose_switch_says_off_is_skipped(self):
@@ -373,11 +373,11 @@ class Sweep(unittest.TestCase):
 
     def test_a_switch_that_does_not_say_off_is_not_an_opt_out(self):
         for answers in (self.switch("b24="), self.switch("", "none"), self.switch("/w=="),
-                        {("GET", repo_path(REPOSITORY, "contents/.github/sdlc-adopt")): (200, [{"name": "a"}])}):
+                        {("GET", repo_path(REPOSITORY, "contents/.github/symphony-adopt")): (200, [{"name": "a"}])}):
             self.candidate(answers)
 
     def declined(self, repo=REPOSITORY):
-        path = f"pulls?state=closed&head={repo['owner']['login']}:sdlc/adopt&per_page=1"
+        path = f"pulls?state=closed&head={repo['owner']['login']}:symphony/adopt&per_page=1"
         return {("GET", repo_path(repo, path)): (200, [{"number": 1, "state": "closed", "merged_at": None}])}
 
     def test_a_declined_offer_is_not_made_again(self):
@@ -403,7 +403,7 @@ class Sweep(unittest.TestCase):
                        (refusal(sweep.REFUSAL_TITLE.lower()),), ("odd",)):
             with self.subTest(issues=issues):
                 self.candidate(self.refused(*issues))
-        self.assertEqual(sweep.REFUSAL_TITLE, "OpenSpine SDLC could not open its pull request")
+        self.assertEqual(sweep.REFUSAL_TITLE, "Symphony could not open its pull request")
 
     def test_the_bots_login_is_the_apps_slug_read_once_per_sweep(self):
         second = installation(78, "octo-org", "Organization")
@@ -431,8 +431,8 @@ class Sweep(unittest.TestCase):
 
     def test_a_check_that_is_refused_skips_the_repository_as_unreadable(self):
         refused = (403, {"message": "Resource not accessible by integration"})
-        for rest in ("branches/main", "git/matching-refs/heads/sdlc/adopt", "contents/docs/agents/PROTOCOL.md",
-                     "contents/.github/sdlc-adopt", DECLINED, REFUSED, "git/trees/main?recursive=1"):
+        for rest in ("branches/main", "git/matching-refs/heads/symphony/adopt", "contents/docs/agents/PROTOCOL.md",
+                     "contents/.github/symphony-adopt", DECLINED, REFUSED, "git/trees/main?recursive=1"):
             with self.subTest(check=rest):
                 answers = {("GET", repo_path(REPOSITORY, rest)): refused}
                 code, written, out, err = self.run_sweep(FakeGitHub(answers, repositories=[REPOSITORY, ORG_REPOSITORY]))
@@ -442,7 +442,7 @@ class Sweep(unittest.TestCase):
         # cleaner: the mode is not guessed. Nor is a list that is not one.
         answers = {("GET", repo_path(REPOSITORY, "git/trees/main?recursive=1")): NOT_FOUND}
         self.assertEqual(self.skipped(None, REPOSITORY, answers), "1 unreadable")
-        for rest in (DECLINED, REFUSED, "git/matching-refs/heads/sdlc/adopt"):
+        for rest in (DECLINED, REFUSED, "git/matching-refs/heads/symphony/adopt"):
             with self.subTest(check=rest):
                 answers = {("GET", repo_path(REPOSITORY, rest)): (200, {"message": "odd"})}
                 self.assertEqual(self.skipped(None, REPOSITORY, answers), "1 unreadable")
