@@ -250,6 +250,29 @@ class Sweep(unittest.TestCase):
     def test_an_archived_repository_is_skipped(self):
         self.assertEqual(self.skipped(None, repository(archived=True)), "1 archived")
 
+    def test_the_unadopted_among_an_installations_repositories_asked_by_id(self):
+        """The form's workflow holds ids and must not learn a name: with
+        by_id the checks go to /repositories/ID, and unadopted keeps the
+        repositories with a commit and no offer, adoption or opt-out."""
+        self.assertEqual(sweep.repo_path(REPOSITORY), "/repos/mona/widget")
+        self.assertEqual(sweep.repo_path(dict(REPOSITORY, by_id=True)), "/repositories/4242")
+        offered = dict(repository("mona/offered", 7), by_id=True)
+        adopted = dict(repository("mona/adopted", 8), by_id=True)
+        empty = dict(repository("mona/empty", 9), by_id=True)
+        free = dict(REPOSITORY, by_id=True)
+        github = FakeGitHub({
+            ("GET", "/repositories/7/git/matching-refs/heads/sdlc/adopt"): (200, [{"ref": "refs/heads/sdlc/adopt"}]),
+            ("GET", "/repositories/8/contents/docs/agents/PROTOCOL.md"): (200, {"type": "file"}),
+            ("GET", "/repositories/9/branches/main"): NOT_FOUND,
+        })
+        chosen = sweep.unadopted(sweep.GitHub("token", github), [offered, adopted, empty, free, dict(free, archived=True)])
+        self.assertEqual([item["id"] for item in chosen], [4242])
+        self.assertTrue(github.paths())
+        self.assertTrue(all(path.startswith("/repositories/") for path in github.paths()))
+        # A check that fails is the caller's to answer, as a refusal.
+        with self.assertRaises(sweep.GitHubError):
+            sweep.unadopted(sweep.GitHub("token", FakeGitHub(raising="GitHub could not be reached")), [free])
+
     def test_a_repository_without_issues_is_skipped_without_a_call(self):
         """The refusal issue and mode new's setup issue need Issues; a
         repository with them off, as a fork has, is left to the form."""

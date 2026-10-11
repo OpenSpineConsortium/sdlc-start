@@ -159,13 +159,18 @@ class TheWorkflows(unittest.TestCase):
         self.assertIn("if: env.REFUSED != 'true' && steps.form.outputs.repository == ''", text[resolve:])
         self.assertIn("bash start/scripts/jwt.sh", text)
         self.assertIn("/app/installations/$INSTALLATION/access_tokens", text)
-        self.assertIn('-d \'{"permissions":{"metadata":"read"}}\'', text)
-        self.assertIn("installation/repositories?per_page=2", text)
-        self.assertIn('echo "::add-mask::$full"', text)
-        self.assertIn('gh api "repos/$full/collaborators/$AUTHOR/permission"', text)
-        self.assertEqual(text.count('bash start/scripts/refuse.sh "$refusal"'), 2)
-        self.assertIn('echo "repository_id=$(sed -n 2p "$RUNNER_TEMP/one")" >> "$GITHUB_OUTPUT"', text)
-        self.assertNotIn("echo \"$full", text)
+        self.assertIn("installation/repositories?per_page=100", text)
+        self.assertIn('-d \'{"permissions":{"contents":"read"}}\'', text)
+        self.assertIn("sweep.unadopted(sweep.GitHub(os.environ[\"APP_TOKEN\"]), found)", text)
+        self.assertIn('gh api "repositories/$repository_id/collaborators/$AUTHOR/permission"', text)
+        self.assertEqual(text.count("refuse_alike\n"), 2)
+        self.assertIn("deadline=$((SECONDS + 20))", text)
+        self.assertIn('echo "repository_id=$repository_id" >> "$GITHUB_OUTPUT"', text)
+        # The request job never learns the name, so it registers no mask of
+        # one and nothing it prints can differ between refusals.
+        resolve_step = text[resolve:text.index("      - uses: actions/create-github-app-token@v1", resolve)]
+        self.assertNotIn("full_name", resolve_step)
+        self.assertEqual(resolve_step.count("::add-mask::"), 2)
         for step in ("id: account-token", "id: app-probe", "name: Check that the App reaches the repository"):
             start = text.index(step)
             self.assertIn("steps.form.outputs.repository != ''", text[start:start + 400])
@@ -174,6 +179,11 @@ class TheWorkflows(unittest.TestCase):
         for name in ("installation_id", "repository_id"):
             self.assertIn(f"      {name}:\n", call)
         self.assertIn('if [ -n "$ISSUE" ]; then\n            echo "SOURCE=issue"', run)
+        self.assertIn('echo "NAMED=$named" >> "$GITHUB_ENV"', run)
+        self.assertIn('if [ "$NAMED" = masked ]; then\n            echo "::add-mask::$branch"', run)
+        self.assertIn('[ -n "$REQUESTER_GIVEN" ] && echo "::add-mask::$REQUESTER_GIVEN"', run)
+        self.assertNotIn("AUTHOR: ${{ env.REQUESTER }}", run)
+        self.assertIn('git/trees/$encoded?recursive=1', run)
         self.assertIn('echo "SAID=your repository" >> "$GITHUB_ENV"', run)
         self.assertIn('echo "SAID=$target" >> "$GITHUB_ENV"', run)
         self.assertNotIn('refuse.sh "Nothing was done: $TARGET', run)
