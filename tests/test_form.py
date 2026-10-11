@@ -163,7 +163,7 @@ class TheWorkflows(unittest.TestCase):
                       text[told:])
         self.assertIn('title="OpenSpine SDLC could not open its pull request"', text)
         self.assertIn('"$RUNNER_TEMP/refusal"', text)
-        self.assertIn("--author app/openspine-sdlc", text)
+        self.assertIn("creator=openspine-sdlc%5Bbot%5D", text)
         self.assertIn("write off in .github/sdlc-adopt", text)
         owner = text.index("name: Tell the owner when this front door's Setup App is not working")
         self.assertIn("if: env.REFUSED != 'true' && env.SETTINGS == 'front-door-broken'\n", text[owner:])

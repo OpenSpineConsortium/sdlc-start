@@ -33,9 +33,9 @@ def openssl(*arguments, **more):
     return subprocess.run(["openssl", *arguments], capture_output=True, check=True, **more)
 
 
-def run_script(app_id, key):
-    env = {**os.environ, "APP_ID": app_id, "APP_PRIVATE_KEY": key}
-    return subprocess.run(["bash", str(SCRIPT)], env=env, capture_output=True, text=True)
+def run_script(app_id, key, cwd=None, **more_env):
+    env = {**os.environ, "APP_ID": app_id, "APP_PRIVATE_KEY": key, **more_env}
+    return subprocess.run(["bash", str(SCRIPT)], env=env, cwd=cwd, capture_output=True, text=True)
 
 
 @unittest.skipUnless(shutil.which("openssl"), "openssl is not on PATH")
@@ -122,9 +122,14 @@ class TheToken(unittest.TestCase):
                 self.assertIn("APP_ID", done.stderr)
 
     def test_an_id_that_would_break_the_json_is_refused(self):
-        done = run_script('12345"}', self.key)
-        self.assertEqual((done.returncode, done.stdout), (2, ""))
-        self.assertIn("APP_ID", done.stderr)
+        """The whole value is matched: a newline inside or at the end of
+        the id would pass a check made line by line and land in the JSON."""
+        for app_id in ('12345"}', "12345\n", "123\n45", " 12345", "12345 "):
+            with self.subTest(app_id=app_id):
+                done = run_script(app_id, self.key)
+                self.assertEqual((done.returncode, done.stdout), (2, ""))
+                self.assertEqual(done.stderr.count("\n"), 1)
+                self.assertIn("APP_ID", done.stderr)
         done = run_script("Iv1.0123456789abcdef", self.key)
         self.assertEqual(done.returncode, 0)
         self.assertEqual(json.loads(decoded(done.stdout.split(".")[1]))["iss"], "Iv1.0123456789abcdef")
@@ -135,10 +140,16 @@ class TheToken(unittest.TestCase):
         self.assertEqual(done.stdout, "")
 
     def test_the_key_leaves_no_file_behind(self):
-        """Process substitution hands the key to openssl; nothing is written."""
-        before = sorted(self.root.iterdir())
-        self.signed_token(self.key)
-        self.assertEqual(sorted(self.root.iterdir()), before)
+        """Process substitution hands the key to openssl; nothing is written.
+        The script runs in a fresh empty folder that is also its temporary
+        folder, so a key written anywhere it could write would be found."""
+        folder = self.root / "where-the-script-runs"
+        folder.mkdir()
+        where = str(folder)
+        done = run_script("12345", self.key, cwd=where, TMPDIR=where, TMP=where, TEMP=where)
+        self.assertEqual((done.returncode, done.stderr), (0, ""))
+        self.assertEqual(done.stdout.count("."), 2)
+        self.assertEqual(list(folder.iterdir()), [])
 
 
 class TheScript(unittest.TestCase):

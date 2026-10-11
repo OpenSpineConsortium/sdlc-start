@@ -366,7 +366,11 @@ jobs:
             exit 0
           fi
           title="OpenSpine SDLC could not open its pull request"
-          open="$(gh issue list --repo "$TARGET" --state open --author app/openspine-sdlc --search "in:title \"$title\"" --json title --jq '[.[] | select(.title == "OpenSpine SDLC could not open its pull request")] | length' 2>/dev/null || echo 0)"
+          # The same question scripts/sweep.py asks, the same way: the
+          # App's own open issues, by its bot's login, the one with this
+          # title and not a pull request.
+          open="$(gh api "repos/$TARGET/issues?state=open&creator=openspine-sdlc%5Bbot%5D&per_page=100" \
+            --jq '[.[] | select(.title == "OpenSpine SDLC could not open its pull request" and .pull_request == null)] | length' 2>/dev/null || echo 0)"
           if [ "$open" != 0 ]; then
             echo "the repository has the issue already"
             exit 0

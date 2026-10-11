@@ -19,8 +19,9 @@ if [ -z "${APP_ID:-}" ] || [ -z "${APP_PRIVATE_KEY:-}" ]; then
   exit 2
 fi
 # The id lands inside a JSON string: the App's numeric id or its client id,
-# nothing that would break out of the quotes.
-if ! printf '%s' "$APP_ID" | grep -Eq '^[A-Za-z0-9._-]+$'; then
+# nothing that would break out of the quotes. Bash matches the whole value,
+# where grep would pass each line of a value holding a newline.
+if ! [[ "$APP_ID" =~ ^[A-Za-z0-9._-]+$ ]]; then
   echo "jwt.sh: APP_ID must be the App's id or client id" >&2
   exit 2
 fi
