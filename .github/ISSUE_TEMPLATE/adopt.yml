@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Installed the App and landed here? Press Create: a pull request is open in each repository the installation reaches that has no adoption yet, within about two minutes. For the repository's settings too (ruleset, auto-merge, secret scanning), install the Setup App first, https://github.com/apps/symphony-setup/installations/new ("Only select repositories"): it brings you back here, holds Administration for the one run, and uninstalls itself when done. Came here on your own? Install the App first (https://github.com/apps/symphonyboard/installations/new) or name the repository below. This issue is public: a name typed here shows, an installation's number says nothing.
+        Landed here from the install? Press Create: the pull request opens in the repository named below or, when none is named, in the newest repository the installation reaches that has no adoption yet, within about two minutes; press Create again for the next. Both Apps are needed: SymphonyBoard (https://github.com/apps/symphonyboard/installations/new) opens the pull request; Symphony Setup (https://github.com/apps/symphony-setup/installations/new, "Only select repositories", that one) holds Administration for the one run, applies the repository's settings and uninstalls itself. A request for a repository without the Setup App is refused, with its install link. This issue is public: a name typed here shows, an installation's number says nothing.
   - type: input
     id: installation_id
     attributes:
@@ -14,11 +14,16 @@ body:
       description: Filled in by GitHub after the install. Leave it.
     validations:
       required: false
+  # The id is state, not repository: GitHub returns the install link's
+  # state parameter in the Setup URL's query, and an issue form fills the
+  # field whose id matches a query parameter, as installation_id is filled
+  # above, so the repository the extension's button was pressed on arrives
+  # filled in.
   - type: input
-    id: repository
+    id: state
     attributes:
       label: Repository
-      description: OWNER/NAME, only when you came here without installing.
+      description: OWNER/NAME. Filled in when you came from the extension's button; type it when you came here on your own.
       placeholder: OWNER/NAME
     validations:
       required: false
