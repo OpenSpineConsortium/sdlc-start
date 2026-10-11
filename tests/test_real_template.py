@@ -2,7 +2,7 @@
 
 The other tests run on a fake template, since this repository is public and
 the template is not, and CI here cannot read it. Whoever can, runs these
-too: SDLC_TEMPLATE=/path/to/sdlc-template bash scripts/check.sh. Mode new
+too: SDLC_TEMPLATE=/path/to/symphony-template bash scripts/check.sh. Mode new
 must leave no placeholder outside the workflows, no marker folder and,
 once the template's init empties it, an empty checkpoint block; mode
 existing must leave a vendored copy that the library's own check accepts.

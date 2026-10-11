@@ -1,6 +1,6 @@
-# sdlc-start
+# symphony-start
 
-This repository is the public front door to the Symphony template, OpenSpineConsortium/sdlc-template, which stays internal to its enterprise. A person installs the App, or the Setup App, whose Setup URLs send them to the form .github/ISSUE_TEMPLATE/adopt.yml with the installation's number filled in and the kind left to the run, so one press of Create is the request, for every repository the installation reaches with no adoption yet (scripts/resolve.py, by id); or they open the form and name the repository; .github/workflows/adopt.yml checks it and calls .github/workflows/adopt-run.yml, which opens a pull request in their own repository, as the Symphony App, with the template or only its claim protocol, within about two minutes. A person who only installs the App is found by .github/workflows/sweep.yml within the hour, which starts the same run by dispatch, with the installation's and the repository's ids and never a name; scripts/adopt.py does the reading and the copying. README.md says what each kind adds, what is shared and the owner's one-time setup.
+This repository is the public front door to the Symphony template, OpenSpineConsortium/symphony-template, which stays internal to its enterprise. A person installs the App, or the Setup App, whose Setup URLs send them to the form .github/ISSUE_TEMPLATE/adopt.yml with the installation's number filled in and the kind left to the run, so one press of Create is the request, for every repository the installation reaches with no adoption yet (scripts/resolve.py, by id); or they open the form and name the repository; .github/workflows/adopt.yml checks it and calls .github/workflows/adopt-run.yml, which opens a pull request in their own repository, as the Symphony App, with the template or only its claim protocol, within about two minutes. A person who only installs the App is found by .github/workflows/sweep.yml within the hour, which starts the same run by dispatch, with the installation's and the repository's ids and never a name; scripts/adopt.py does the reading and the copying. README.md says what each kind adds, what is shared and the owner's one-time setup.
 
 ## What must hold
 
@@ -11,7 +11,7 @@ This repository is the public front door to the Symphony template, OpenSpineCons
 
 ## Checks
 
-Run `bash scripts/check.sh` before opening or updating a pull request. CI runs the same script as the job named "check". It needs Python 3.12 (`PYTHON` names another interpreter). The tests in tests/test_real_template.py skip unless SDLC_TEMPLATE names a checkout of the template, which CI cannot read, so whoever can runs `SDLC_TEMPLATE=/path/to/sdlc-template bash scripts/check.sh` before a change to scripts/adopt.py merges.
+Run `bash scripts/check.sh` before opening or updating a pull request. CI runs the same script as the job named "check". It needs Python 3.12 (`PYTHON` names another interpreter). The tests in tests/test_real_template.py skip unless SDLC_TEMPLATE names a checkout of the template, which CI cannot read, so whoever can runs `SDLC_TEMPLATE=/path/to/symphony-template bash scripts/check.sh` before a change to scripts/adopt.py merges.
 
 ## Writing
 

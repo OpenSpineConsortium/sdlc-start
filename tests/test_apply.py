@@ -163,10 +163,10 @@ class ExistingMode(Scratch):
         settings = json.loads(text)
         self.assertEqual(list(settings), ["permissions", "model", "extraKnownMarketplaces", "enabledPlugins"])
         self.assertEqual({k: settings[k] for k in THEIR_SETTINGS}, THEIR_SETTINGS)
-        self.assertEqual(settings["extraKnownMarketplaces"], {"sdlc-marketplace": adopt.MARKETPLACE})
-        self.assertEqual(settings["enabledPlugins"], {"symphony@sdlc-marketplace": True})
+        self.assertEqual(settings["extraKnownMarketplaces"], {"symphony-marketplace": adopt.MARKETPLACE})
+        self.assertEqual(settings["enabledPlugins"], {"symphony@symphony-marketplace": True})
         self.assertTrue(text.startswith(THEIR_SETTINGS_TEXT.rstrip()[:-1].rstrip() + ",\n"), "their lines stay")
-        self.assertIn('\n    "enabledPlugins": {\n        "symphony@sdlc-marketplace": true\n    }\n}\n', text)
+        self.assertIn('\n    "enabledPlugins": {\n        "symphony@symphony-marketplace": true\n    }\n}\n', text)
         self.assertEqual(manifest["settings_changed"], {"extraKnownMarketplaces": "added", "enabledPlugins": "added"})
         self.assertTrue(manifest["plugin_enabled"])
 
@@ -174,16 +174,16 @@ class ExistingMode(Scratch):
         write(self.target, ".claude/settings.json", '{"enabledPlugins": {"other@market": true}}\n')
         manifest = self.adopt_existing()
         settings = json.loads((self.target / ".claude/settings.json").read_text())
-        self.assertEqual(settings["enabledPlugins"], {"other@market": True, "symphony@sdlc-marketplace": True})
-        self.assertIn("sdlc-marketplace", settings["extraKnownMarketplaces"])
+        self.assertEqual(settings["enabledPlugins"], {"other@market": True, "symphony@symphony-marketplace": True})
+        self.assertIn("symphony-marketplace", settings["extraKnownMarketplaces"])
         self.assertEqual(manifest["settings_changed"],
                          {"extraKnownMarketplaces": "added", "enabledPlugins": "extended"})
 
     def test_a_plugin_they_turned_off_stays_off_when_the_marketplace_is_added(self):
-        write(self.target, ".claude/settings.json", '{"enabledPlugins": {"symphony@sdlc-marketplace": false}}\n')
+        write(self.target, ".claude/settings.json", '{"enabledPlugins": {"symphony@symphony-marketplace": false}}\n')
         manifest = self.adopt_existing()
         settings = json.loads((self.target / ".claude/settings.json").read_text())
-        self.assertEqual(settings["enabledPlugins"], {"symphony@sdlc-marketplace": False})
+        self.assertEqual(settings["enabledPlugins"], {"symphony@symphony-marketplace": False})
         self.assertEqual(manifest["settings_changed"], {"extraKnownMarketplaces": "added"})
         self.assertFalse(manifest["plugin_enabled"])
 
@@ -196,14 +196,14 @@ class ExistingMode(Scratch):
         rewritten = (self.target / ".claude/settings.json").read_bytes()
         for data in (appended, rewritten):
             self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
-            self.assertIn("sdlc-marketplace", json.loads(data)["extraKnownMarketplaces"])
+            self.assertIn("symphony-marketplace", json.loads(data)["extraKnownMarketplaces"])
 
     def test_an_empty_object_takes_the_keys(self):
         write(self.target, ".claude/settings.json", "{}\n")
         self.adopt_existing()
         self.assertEqual(json.loads((self.target / ".claude/settings.json").read_text()), {
-            "extraKnownMarketplaces": {"sdlc-marketplace": adopt.MARKETPLACE},
-            "enabledPlugins": {"symphony@sdlc-marketplace": True},
+            "extraKnownMarketplaces": {"symphony-marketplace": adopt.MARKETPLACE},
+            "enabledPlugins": {"symphony@symphony-marketplace": True},
         })
 
     def test_none_of_the_templates_tests_checks_or_documents(self):
@@ -319,8 +319,8 @@ class ExistingModeEdges(Scratch):
         manifest = self.adopt_existing({"README.md": "# widget\n"})
         self.assertEqual((self.target / "CLAUDE.md").read_text(), adopt.CLAUDE_SECTION)
         self.assertEqual(json.loads((self.target / ".claude/settings.json").read_text()), {
-            "extraKnownMarketplaces": {"sdlc-marketplace": adopt.MARKETPLACE},
-            "enabledPlugins": {"symphony@sdlc-marketplace": True},
+            "extraKnownMarketplaces": {"symphony-marketplace": adopt.MARKETPLACE},
+            "enabledPlugins": {"symphony@symphony-marketplace": True},
         })
         self.assertIn("CLAUDE.md", manifest["added"])
         self.assertIn(".claude/settings.json", manifest["added"])
@@ -338,8 +338,8 @@ class ExistingModeEdges(Scratch):
         self.assertEqual((self.target / ".claude/settings.json").read_text(), '{"enabledPlugins": []}\n')
 
     def test_a_plugin_they_turned_off_stays_off(self):
-        theirs = json.dumps({"extraKnownMarketplaces": {"sdlc-marketplace": {"source": {}}},
-                             "enabledPlugins": {"symphony@sdlc-marketplace": False}}) + "\n"
+        theirs = json.dumps({"extraKnownMarketplaces": {"symphony-marketplace": {"source": {}}},
+                             "enabledPlugins": {"symphony@symphony-marketplace": False}}) + "\n"
         manifest = self.adopt_existing({".claude/settings.json": theirs})
         self.assertEqual((self.target / ".claude/settings.json").read_text(), theirs)
         self.assertIn(".claude/settings.json", manifest["kept"])
@@ -469,7 +469,7 @@ class Refusals(Scratch):
 
     def test_a_bad_repository_or_creator(self):
         self.assertEqual(apply(self.template, self.target, self.manifest, repo="a/b; rm -rf /")[0], 1)
-        code, _, err = apply(self.template, self.target, self.manifest, repo="OpenSpineConsortium/sdlc-template")
+        code, _, err = apply(self.template, self.target, self.manifest, repo="OpenSpineConsortium/symphony-template")
         self.assertEqual(code, 1, err)
 
     def test_a_manifest_inside_the_target(self):

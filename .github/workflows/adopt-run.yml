@@ -287,14 +287,14 @@ jobs:
           app-id: ${{ vars.SDLC_APP_ID }}
           private-key: ${{ secrets.SDLC_APP_PRIVATE_KEY }}
           owner: OpenSpineConsortium
-          repositories: sdlc-template
+          repositories: symphony-template
           permission-contents: read
           skip-token-revoke: true
 
       - uses: actions/checkout@v7
         if: env.REFUSED != 'true'
         with:
-          repository: OpenSpineConsortium/sdlc-template
+          repository: OpenSpineConsortium/symphony-template
           token: ${{ steps.template-token.outputs.token }}
           path: template
           persist-credentials: false
@@ -322,7 +322,7 @@ jobs:
             echo "the template's tools/VENDORED does not name a release of sdlc-protocol"
             exit 1
           fi
-          git clone --quiet https://github.com/OpenSpineConsortium/sdlc-protocol.git "$RUNNER_TEMP/protocol"
+          git clone --quiet https://github.com/OpenSpineConsortium/symphony-protocol.git "$RUNNER_TEMP/protocol"
           git -C "$RUNNER_TEMP/protocol" checkout --quiet "$commit"
           test -f "$RUNNER_TEMP/protocol/spec/PROTOCOL.md"
           echo "the protocol's text is at hand, at the release the template vendors"
@@ -450,14 +450,14 @@ jobs:
           # The same question scripts/sweep.py asks, the same way: the
           # App's own open issues, by its bot's login, the one with this
           # title and not a pull request.
-          open="$(gh api "repos/$TARGET/issues?state=open&creator=openspine-sdlc%5Bbot%5D&per_page=100" \
+          open="$(gh api "repos/$TARGET/issues?state=open&creator=${SLUG}%5Bbot%5D&per_page=100" \
             --jq '[.[] | select(.title == "Symphony could not open its pull request" and .pull_request == null)] | length' 2>/dev/null || echo 0)"
           if [ "$open" != 0 ]; then
             echo "the repository has the issue already"
             exit 0
           fi
           printf '%s\n\n%s\n' \
-            "The Symphony App was installed on this repository, which its front door (https://github.com/OpenSpineConsortium/sdlc-start) takes as a request for its adoption pull request, and the run that tried stopped: $(cat "$RUNNER_TEMP/refusal" 2>/dev/null || echo "see the front door's README")" \
+            "The Symphony App was installed on this repository, which its front door (https://github.com/OpenSpineConsortium/symphony-start) takes as a request for its adoption pull request, and the run that tried stopped: $(cat "$RUNNER_TEMP/refusal" 2>/dev/null || echo "see the front door's README")" \
             "Where it says to open a new request with the form, you may; or put right what stood in the way and close this issue, and the front door tries again within about ten minutes. To decline the adoption and keep the App, write off in .github/symphony-adopt on the default branch." \
             > "$RUNNER_TEMP/refusal-issue.md"
           gh issue create --repo "$TARGET" --title "$title" --body-file "$RUNNER_TEMP/refusal-issue.md" > /dev/null
@@ -511,7 +511,7 @@ jobs:
           app-id: ${{ vars.SDLC_SETUP_APP_ID }}
           private-key: ${{ secrets.SDLC_SETUP_APP_PRIVATE_KEY }}
           owner: OpenSpineConsortium
-          repositories: sdlc-start
+          repositories: symphony-start
           permission-metadata: read
 
       # The ruleset comes from the template's own file, so the settings

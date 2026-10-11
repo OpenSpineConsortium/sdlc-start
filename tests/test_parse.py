@@ -48,6 +48,8 @@ BAD_REPOSITORIES = (
     "octo-org/" + "w" * 101,
     "octo" + chr(0xE9) + "/widget",
     "octo_org/widget",
+    "OpenSpineConsortium/symphony-template",
+    "openspineconsortium/SYMPHONY-START",
     "OpenSpineConsortium/sdlc-template",
     "openspineconsortium/SDLC-START",
 )
@@ -114,7 +116,7 @@ class TheNameCommand(unittest.TestCase):
         self.assertEqual(out.splitlines(), ["repository=Octo-Org/my.project_2", "owner=Octo-Org", "name=my.project_2"])
 
     def test_a_name_that_is_not_one_or_is_the_front_doors_own(self):
-        for repository in ("a/b; rm -rf /", "https://github.com/octo-org/widget", "OpenSpineConsortium/sdlc-start", ""):
+        for repository in ("a/b; rm -rf /", "https://github.com/octo-org/widget", "OpenSpineConsortium/symphony-start", ""):
             with self.subTest(repository=repository):
                 code, out, err = run(["name", repository])
                 self.assertEqual((code, out), (1, ""))
