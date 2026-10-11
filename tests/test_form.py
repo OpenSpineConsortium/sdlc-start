@@ -52,26 +52,16 @@ class TheForm(unittest.TestCase):
         labels = re.findall(r"^      label: (.+)$", self.text, re.MULTILINE)
         self.assertEqual(labels, list(adopt.FIELDS))
 
-    def test_every_option_parse_takes_is_offered(self):
-        for option in [*adopt.KINDS, *adopt.SHARING]:
-            self.assertIn(f'        - "{option}"\n', self.text)
-        self.assertIn(f"        - label: {adopt.APP_INSTALLED}\n          required: false\n", self.text)
-
-    def test_sharing_is_the_default(self):
-        share, keep = (self.text.index(f'        - "{option}"\n') for option in adopt.SHARING)
-        self.assertLess(share, keep)
-        self.assertEqual(adopt.SHARING[list(adopt.SHARING)[0]], "on")
-        self.assertIn("      default: 0\n", self.text)
-
-    def test_reading_the_kind_from_the_repository_is_the_default(self):
-        """From the install the form is one button: the first kind, the
-        default, leaves the kind to the run, which reads the tree."""
-        first = list(adopt.KINDS)[0]
-        self.assertEqual(adopt.KINDS[first], "read")
-        kind = self.text.index("    id: kind\n")
-        offsets = [self.text.index(f'        - "{option}"\n') for option in adopt.KINDS]
-        self.assertEqual(offsets[0], min(offsets))
-        self.assertIn("      default: 0\n", self.text[kind:self.text.index("    id: metrics\n")])
+    def test_every_box_parse_reads_is_offered_and_both_are_opt_outs(self):
+        """From the install the form is one button: nothing is required,
+        the kind is read from the repository and sharing is on unless the
+        person ticks the box; the two boxes are the form's only choices."""
+        for option in adopt.OPTIONS:
+            self.assertIn(f"        - label: {option}\n", self.text)
+        self.assertNotIn("type: dropdown", self.text)
+        self.assertNotIn("required: true", self.text)
+        self.assertEqual(self.text.count("required: false"), 2)
+        self.assertLess(self.text.index("    id: installation_id\n"), self.text.index("    id: repository\n"))
         run = (ROOT / ".github/workflows/adopt-run.yml").read_text(encoding="utf-8")
         self.assertIn('if [ "$mode" = read ]; then', run)
         self.assertIn("sweep.classify_tree", run)
@@ -83,12 +73,17 @@ class TheForm(unittest.TestCase):
 
     def test_the_label_and_the_title(self):
         self.assertIn('labels: ["adopt"]\n', self.text)
-        self.assertIn('title: "Adopt: "\n', self.text)
+        self.assertIn('title: "Adopt"\n', self.text)
 
-    def test_the_form_says_what_is_shared_and_that_the_issue_is_public(self):
-        for words in ("salted hash", "Never code, text, titles or names", "`off`", "This issue is public",
-                      "throwaway", "closed once it has been handled", "installations/new"):
+    def test_the_form_is_short_and_says_what_matters(self):
+        """The person is assumed to know what they are doing: a few
+        sentences, which still say what is shared, where the switch is,
+        that the issue is public and where the App is installed."""
+        for words in ("never code, text or names", ".github/sdlc-metrics", "This issue is public", "installations/new",
+                      "Press Create", "newest created"):
             self.assertIn(words, self.text)
+        prose = re.search(r"value: \|\n((?:        .*\n)+)", self.text).group(1)
+        self.assertLess(len(prose.split()), 140)
 
     def test_the_form_and_the_readme_name_the_setup_app_and_its_one_use(self):
         """Installing the Setup App is the person's consent to the settings,
@@ -161,7 +156,7 @@ class TheWorkflows(unittest.TestCase):
         self.assertIn("/app/installations/$INSTALLATION/access_tokens", text)
         self.assertIn("installation/repositories?per_page=100", text)
         self.assertIn('-d \'{"permissions":{"contents":"read"}}\'', text)
-        self.assertIn("sweep.unadopted(sweep.GitHub(os.environ[\"APP_TOKEN\"]), found)", text)
+        self.assertIn("sweep.chosen(sweep.GitHub(os.environ[\"APP_TOKEN\"]), found)", text)
         self.assertIn('gh api "repositories/$repository_id/collaborators/$AUTHOR/permission"', text)
         self.assertEqual(text.count("refuse_alike\n"), 2)
         self.assertIn("deadline=$((SECONDS + 20))", text)

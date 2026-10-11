@@ -31,10 +31,10 @@ name: Adopt
 # carries the installation's number and no name is resolved with the
 # App's own JWT: the installation's token lists the repositories it
 # reaches, the one among them with no adoption yet (by the sweep's rules,
-# asked by id) is the request's once the author is read as its
-# administrator, and the adoption run gets the ids. None, several, an
-# installation that is not this App's and an author who is not an
-# administrator get one answer at one moment, and the name, which no
+# asked by id), or the newest created among several, is the request's
+# once the author is read as its administrator, and the adoption run gets
+# the ids. None, an installation that is not this App's and an author who
+# is not an administrator get one answer at one moment, and the name, which no
 # issue typed, is never read in this job, so nothing here can be masked
 # and nothing printed can differ: a guessed number learns nothing. GitHub's own
 # token, which may write only this repository's issues, posts every
@@ -129,7 +129,7 @@ jobs:
           # never learned here (the API is asked by id), so no mask exists
           # in this job and nothing printed can differ; and each refusal
           # waits for the same moment, so the step's length says nothing.
-          refusal="Nothing was done: the installation this form carried is not one of the OpenSpine SDLC App's, or it reaches no repository with no adoption yet, or several, or your account is not an administrator of the one it reaches. Open a new request with the form naming the repository as OWNER/NAME, as an administrator of it; this one is closed."
+          refusal="Nothing was done: the installation this form carried is not one of the OpenSpine SDLC App's, or it reaches no repository with no adoption yet, or your account is not an administrator of the one it reaches. Open a new request with the form naming the repository as OWNER/NAME, as an administrator of it; this one is closed."
           deadline=$((SECONDS + 20))
           refuse_alike() {
             sleep $((deadline > SECONDS ? deadline - SECONDS : 0))
@@ -153,9 +153,10 @@ jobs:
           token="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["token"])' "$reply")"
           echo "::add-mask::$token"
           curl -sS -o "$reply" -H "Authorization: Bearer $token" -H "$accept" "https://api.github.com/installation/repositories?per_page=100"
-          # The one repository of the installation's with no adoption yet,
-          # by the sweep's own rules and by id, so a second repository under
-          # the same account is one press too; none or several is a refusal.
+          # The repository the install meant: the installation's one with
+          # no adoption yet, by the sweep's own rules and by id, or the
+          # newest created among several, so a repository added to an
+          # account's installation is one press too; none is a refusal.
           APP_TOKEN="$token" python3 -c 'import json, os, sys
           sys.path.insert(0, "start/scripts")
           import sweep
@@ -163,11 +164,11 @@ jobs:
           found = data.get("repositories") if isinstance(data, dict) else None
           found = [dict(r, by_id=True) for r in (found or []) if isinstance(r, dict) and "id" in r]
           try:
-              free = sweep.unadopted(sweep.GitHub(os.environ["APP_TOKEN"]), found)
+              meant = sweep.chosen(sweep.GitHub(os.environ["APP_TOKEN"]), found)
           except sweep.GitHubError:
-              free = []
-          if len(free) == 1:
-              print(free[0]["id"])' "$reply" > "$RUNNER_TEMP/one" 2>/dev/null || : > "$RUNNER_TEMP/one"
+              meant = None
+          if meant:
+              print(meant["id"])' "$reply" > "$RUNNER_TEMP/one" 2>/dev/null || : > "$RUNNER_TEMP/one"
           repository_id="$(head -n 1 "$RUNNER_TEMP/one")"
           permission=none
           case "$repository_id" in ""|*[!0-9]*) repository_id="" ;; esac
