@@ -62,22 +62,26 @@ MANIFEST_SCHEMA = "sdlc-adopt/1"
 FIELD_INSTALLATION = "Installation"
 FIELD_REPOSITORY = "Repository"
 FIELD_KIND = "Kind"
+FIELD_MERGE = "Merge"
 FIELD_OPTIONS = "Options"
-FIELDS = (FIELD_INSTALLATION, FIELD_REPOSITORY, FIELD_KIND, FIELD_OPTIONS)
+FIELDS = (FIELD_INSTALLATION, FIELD_REPOSITORY, FIELD_KIND, FIELD_MERGE, FIELD_OPTIONS)
 # What GitHub writes under an optional field left empty.
 NO_RESPONSE = "_No response_"
 # The kind: Auto, the default, is read from the repository by the run.
 KINDS = {
-    "Auto: the whole template into an empty repository, the protocol alone into one with files": "read",
-    "Empty repository: the whole template": "new",
-    "Existing repository: the protocol only": "existing",
+    "Auto: read the repository (empty gets the whole template, one with files gets the protocol only)": "read",
+    "Whole template: make this repository a Claude project": "new",
+    "Protocol only: add the coordination protocol to the code I have": "existing",
 }
-# The two boxes: the run merges when asked, and sharing is on unless the
-# person says otherwise.
+# The merge choice is a dropdown with a default, since a checkbox has
+# none: the run merges unless the person asks to review first. The one
+# box: sharing is on unless the person says otherwise.
 MERGE_FOR_ME = "Merge the pull request for me"
+REVIEW_FIRST = "Leave the pull request open for me to review"
+MERGES = {MERGE_FOR_ME: "true", REVIEW_FIRST: "false"}
 OPT_OUT_OF_SHARING = ("Do not share anonymous aggregates (counts, durations and rates of the protocol at work, never"
                       " code, text or names; the switch is .github/symphony-metrics)")
-OPTIONS = (MERGE_FOR_ME, OPT_OUT_OF_SHARING)
+OPTIONS = (OPT_OUT_OF_SHARING,)
 HEADING = re.compile(r"### (.+)")
 BOX = re.compile(r"- \[([ xX])\] (.+)")
 
@@ -240,7 +244,7 @@ def parse_form(body):
     installation was given), installation (empty when the repository was
     named without it), mode (read, the default, which the run reads from
     the tree), metrics (off when the opt-out box is ticked) and merge
-    (true when the person asked the run to merge)."""
+    (true unless the person chose to review the pull request first)."""
     sections = form_sections(body)
     if set(sections) != set(FIELDS):
         raise FormError("the issue is not the adoption form's")
@@ -254,9 +258,12 @@ def parse_form(body):
     if kind and kind not in KINDS:
         raise FormError("the field Kind holds none of the form's options")
     mode = KINDS[kind] if kind else "read"
+    choice = given(sections[FIELD_MERGE])
+    if choice and choice not in MERGES:
+        raise FormError("the field Merge holds none of the form's options")
+    merge = MERGES[choice] if choice else "true"
     ticked = ticked_options(sections[FIELD_OPTIONS])
     metrics = "off" if OPT_OUT_OF_SHARING in ticked else "on"
-    merge = "true" if MERGE_FOR_ME in ticked else "false"
     repository = f"{owner}/{name}" if named else ""
     return {"repository": repository, "owner": owner, "name": name, "installation": installation,
             "mode": mode, "metrics": metrics, "merge": merge}

@@ -31,17 +31,28 @@ body:
     id: kind
     attributes:
       label: Kind
+      description: The whole template makes the repository a Claude project, laid out for the teammates (their instructions, shared memory, board, checks and setup documents); it fits an empty repository. The protocol only adds the coordination protocol for the teammates' pull requests (the claim files, the board, the rules and hooks) to the code you already have, replacing nothing of yours. Auto reads the repository and picks.
       options:
-        - "Auto: the whole template into an empty repository, the protocol alone into one with files"
-        - "Empty repository: the whole template"
-        - "Existing repository: the protocol only"
+        - "Auto: read the repository (empty gets the whole template, one with files gets the protocol only)"
+        - "Whole template: make this repository a Claude project"
+        - "Protocol only: add the coordination protocol to the code I have"
       default: 0
     validations:
-      required: false
+      required: true
+  - type: dropdown
+    id: merge
+    attributes:
+      label: Merge
+      description: The run merges the pull request for you unless you choose to review it first; one press reaches one repository.
+      options:
+        - "Merge the pull request for me"
+        - "Leave the pull request open for me to review"
+      default: 0
+    validations:
+      required: true
   - type: checkboxes
     id: options
     attributes:
       label: Options
       options:
-        - label: Merge the pull request for me
         - label: Do not share anonymous aggregates (counts, durations and rates of the protocol at work, never code, text or names; the switch is .github/symphony-metrics)

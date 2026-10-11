@@ -43,7 +43,7 @@ Installing SymphonyBoard sends you on to Symphony Setup's install page, and that
 sends you to a public form on the front door repository,
 github.com/OpenSpineConsortium/symphony-start. Pressing Create there opens a public issue in your
 GitHub name; the issue carries what the form held (your installation's number, or a repository name
-you typed, the kind and two boxes) and the run's answers, and it is closed when the run is done,
+you typed, the kind, the merge choice and one box) and the run's answers, and it is closed when the run is done,
 never deleted. A repository the run learns only by its number is never named on the front door: its
 name, its owner's, its default branch's and your login are masked in the run's public log, and the
 issue is answered with "your repository". A name you typed into the form is public already, and the
@@ -71,8 +71,8 @@ default branch's ruleset, turns on delete-head-branches and auto-merge, adds the
 the repository's topics (the sign on the repository's page that it is adopted, which anyone can see
 there and the Symphony browser extension reads from the page; your other topics stay), and turns on
 secret scanning and push protection where your plan and visibility allow it, then revokes the Setup
-App's token and uninstalls the Setup App when the repository was its only one. When you ticked
-"Merge the pull request for me", the run merges it or arms auto-merge. Everything else lands only
+App's token and uninstalls the Setup App when the repository was its only one. Unless you chose on the form to review the pull request
+first, the run merges it or arms auto-merge. Everything else lands only
 when you merge. Closing the pull request instead leaves the labels, the branch, the settings, the
 topic and the issue for you to undo. When the run could not open its pull request and nobody was on
 the form to tell, the App opens one issue in your repository saying why.
