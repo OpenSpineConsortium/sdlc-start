@@ -8,6 +8,7 @@ import unittest
 
 from trees import adopt, run
 
+READ = "Read it from the repository: the whole template for a new one, the protocol alone for one with files of its own"
 NEW = "New repository: the whole template"
 EXISTING = "Existing repository: the protocol only"
 SHARE = "Share anonymous aggregates (default)"
@@ -69,6 +70,11 @@ class GoodForms(unittest.TestCase):
         fields = adopt.parse_form(form_body(repository="_No response_", installation="5268543"))
         self.assertEqual(fields, {"repository": "", "owner": "", "name": "", "installation": "5268543",
                                   "mode": "new", "metrics": "on"})
+        # The one-button form: the kind left to the run, the box not ticked,
+        # which the installation stands in for.
+        fields = adopt.parse_form(form_body(repository="_No response_", installation="5268543", kind=READ, box=" "))
+        self.assertEqual((fields["mode"], fields["installation"]), ("read", "5268543"))
+        self.assertEqual(adopt.parse_form(form_body(kind=READ))["mode"], "read")
         # Both given: the name decides, and the installation comes along.
         fields = adopt.parse_form(form_body(installation="42"))
         self.assertEqual((fields["repository"], fields["installation"]), ("octo-org/widget", "42"))
@@ -142,7 +148,10 @@ class BadForms(unittest.TestCase):
         self.assertIn("installing the App", reason)
 
     def test_the_box_not_ticked(self):
+        """Named without an installation, the box is the person's word that
+        the App is installed; it stays required there."""
         self.assertIn("not ticked", self.refused(form_body(box=" ")))
+        self.assertIn("not ticked", self.refused(form_body(box=" ", kind=READ)))
 
     def test_another_box_ticked(self):
         body = form_body().replace("The OpenSpine SDLC App is installed", "Something else is installed")
