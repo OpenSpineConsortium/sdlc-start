@@ -164,17 +164,20 @@ class Body(unittest.TestCase):
         self.assertIn("Sharing of anonymous aggregates is on", body)
         self.assertIn("does not carry its metrics workflow yet", body)
         self.assertIn("write `off` in `.github/symphony-metrics`", body)
+        self.assertNotIn("Some of those counts say how the work ran in parallel", body)
         make_template(self.template, metrics=True)
         body = self.body()
         self.assertIn("writes METRICS.json to the branch `metrics`: counts, durations and rates of the protocol at"
                       " work, and never code", body)
         self.assertIn("JUDGE.json, the failure-type frequencies that someone's own judge writes", body)
+        self.assertIn("Some of those counts say how the work ran in parallel", body)
 
     def test_the_metrics_sentence_follows_what_landed(self):
         make_template(self.template, metrics=True)
         files = dict(THEIR_FILES, **{".github/workflows/metrics.yml": "theirs\n"})
         body = self.body(files, mode="existing")
         self.assertIn("The metrics workflow was not written (above), so nothing is computed or shared today", body)
+        self.assertNotIn("Some of those counts say how the work ran in parallel", body)
         self.assertNotIn("does not carry its metrics workflow yet", body)
         self.assertNotIn("`metrics`, which the workflows", body)
         self.assertIn("Never target `board`, which", body)

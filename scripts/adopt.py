@@ -1043,6 +1043,10 @@ def sharing_section(manifest):
                          " METRICS.json, and JUDGE.json, the failure-type frequencies that someone's own judge"
                          " writes when they run it on their own machine and Claude account, and nothing else; the"
                          " dataset names this repository only by a salted hash.")
+            parts.append("Some of those counts say how the work ran in parallel, so that one person's several"
+                         " Claude Code sessions are counted apart from several people's work: the workflow sorts"
+                         " the pull requests in its memory by who opened each one, which Claude Code session made"
+                         " it and which files it changed, and writes none of them.")
         elif manifest["metrics_in_template"]:
             parts.append("The metrics workflow was not written (above), so nothing is computed or shared today; the"
                          " switch records your choice for when it is.")
