@@ -102,37 +102,39 @@ one file, `METRICS.json`, to a branch named `metrics` of your repository: eleven
 pull requests opened, merged, closed unmerged, reviews, changes requested, check runs passed and
 failed, conflicts seen, released claims, contributors), the median and 90th percentile of three
 waits in seconds, two rates, the time it was made, the number of days it covers (30), the protocol's
-release number and the words that name the schema and the switch. Since version 2 of this statement
-the file also holds counts of how the work ran in parallel, so that failure can be compared between
-one person running several Claude Code sessions at once and several people working at once:
-seventeen counts of the people who opened pull requests, the Claude Code sessions named on them, how
-many named one, the most pull requests, people and sessions of one person at work at the same
-moment, the conflicts the board marked or GitHub reports on open pull requests, and the pull
-requests the run could not read in full; for each of eight work settings (nothing else at work
-beside it; one session's several pull requests; one person's several sessions; several people;
-several people beside one person's several sessions; not known; the repository's own Claude
-workflows; other apps and bots), thirteen counts and sums for the pull requests that ended in the 30
-days and those still open, such as how many merged, met a conflict or shared a changed file with
-work beside them, and how long they were at work; and, for four kinds of pairs of pull requests at
-work at the same time, seven counts of how many pairs there were and how many worked at once, shared
-a file, had one land while the other was open, or met in conflict when it did. To make the file the
-workflow reads from GitHub's API, in its memory only and for the length of the run, the pull
-requests changed in the 30 days and in the 30 before them, their commits, reviews, check runs and
-changed files, the repository's branches and the comments made on its issues and pull requests in
-that time; to sort the pull requests it uses the login of the person who opened each one, the name
-of its branch, the Claude Code session link a cloud session writes into its commit messages and pull
-request descriptions (and a line `Symphony-Session:` where a session writes one), the times of its
-commits and the names of the files it changed; it writes none of them. The file holds no name,
-login, session link or session id, title, branch name, file name, link, issue number, text or code;
-a test in the template fails if any of those reaches the file. Where a repository has few pull
-requests a count can describe a single one, and the counts say how a project works, for instance
-that one person had three sessions' work going at once. The branch is as visible as your repository.
-A maintainer of your project who chooses to run the template's judge on their own computer, with
-their own Claude Code account, adds a second file, `JUDGE.json`, holding counts of communication
-failure types, in all and for each work setting, with how many pull requests and conversations it
-judged and how many of those conversations had two or more people, the number of days it covered and
-any limit it ran under, the time it was made, which model and which version of its prompt it used,
-and the word that names its schema; the App never runs that judge and only reads that file.
+release number and the short id of its commit, and the words that name the schema and the switch.
+Since version 2 of this statement the file also holds counts of how the work ran in parallel, so
+that failure can be compared between one person running several Claude Code sessions at once and
+several people working at once: seventeen counts of the people who opened pull requests, the Claude
+Code sessions named on them, how many named one, the most pull requests, people and sessions of one
+person at work at the same moment, the conflicts the board marked or GitHub reports on open pull
+requests, and the pull requests the run could not read in full; for each of eight work settings
+(nothing else at work beside it; one session's several pull requests; one person's several sessions;
+several people; several people beside one person's several sessions; not known; the repository's own
+Claude workflows; other apps and bots), thirteen counts and sums for the pull requests that ended in
+the 30 days and those still open, such as how many merged, met a conflict or shared a changed file
+with work beside them, and how long they were at work; and, for four kinds of pairs of pull requests
+at work at the same time, seven counts of how many pairs there were and how many worked at once,
+shared a file, had one land while the other was open, or met in conflict when it did. To make the
+file the workflow reads from GitHub's API, in its memory only and for the length of the run, the
+pull requests changed in the 30 days and in the 30 before them, their commits, reviews, check runs
+and changed files, the comments made on its issues and pull requests in those 60 days, the
+repository's branches and, for each claim branch with no pull request changed in the 30 days, its
+newest commit; to sort the pull requests it uses the login of the person who opened each one, the
+name of its branch, the Claude Code session link a cloud session writes into its commit messages and
+pull request descriptions (and a line `Symphony-Session:` where a session writes one) and the times
+of its commits, and to see whose files meet, the names of the files each changed; it writes none of
+them. The file holds no name, login, session link or session id, title, branch name, file name,
+link, issue number, text or code; a test in the template fails if any of those reaches the file.
+Where a repository has few pull requests a count can describe a single one, and the counts say how a
+project works, for instance that one person had three sessions' work going at once. The branch is as
+visible as your repository. A maintainer of your project who chooses to run the template's judge on
+their own computer, with their own Claude Code account, adds a second file, `JUDGE.json`, holding
+counts of communication failure types, of the conversations it judged and of those that had two or
+more people, in all and for each work setting, the totals of the failure types' three groups, the
+number of pull requests it judged in each work setting, the number of days it covered and any limit
+it ran under, the time it was made, which model and which version of its prompt it used, and the
+word that names its schema; the App never runs that judge and only reads that file.
 
 Once a day, at 04:17 UTC, the developer's collector lists the repositories every installation of
 SymphonyBoard reaches (receiving from GitHub their names, owners and visibility, which it holds in
@@ -225,8 +227,9 @@ Version 2 adds to `METRICS.json` and `JUDGE.json` the counts of how the work ran
 the section on field metrics describes, and to `JUDGE.json` how many of its conversations had two or
 more people, the number of days it covered and any limit it ran under. It also says what the
 workflow reads to make `METRICS.json`, and names what the two files held already and version 1 left
-out: the time each was made, the number of days `METRICS.json` covers, and, in `JUDGE.json`, how
-many conversations were judged, the model, the version of the prompt and the word that names its
+out: the time each was made, the number of days `METRICS.json` covers and the short id of the
+protocol's commit, and, in `JUDGE.json`, how many conversations were judged, the totals of the
+failure types' three groups, the model, the version of the prompt and the word that names its
 schema. Nothing else changed.
 
 Symphony is not a GitHub or Anthropic product. "GitHub" is GitHub's mark; "Claude" and "Claude Code"

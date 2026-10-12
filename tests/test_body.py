@@ -9,11 +9,13 @@ list, all of them for mode new and all but team mode's for mode existing.
 """
 
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
-from trees import SPEC, THEIR_FILES, adopt, apply, make_checkout, make_target, make_template, run, write
+from trees import (METRICS, METRICS_BEFORE_BREAKDOWN, SPEC, THEIR_FILES, adopt, apply, make_checkout, make_target,
+                   make_template, run, write)
 
 PRIVATE_LINK = "github.com/OpenSpineConsortium/symphony-template"
 NO_GIT = {rel: text for rel, text in THEIR_FILES.items() if not rel.startswith(".git/")}
@@ -22,6 +24,9 @@ ALL_DONE = {"ruleset": "done", "toggles": "done", "topic": "done", "secret_scann
             "push_protection": "done"}
 TOPIC_WHY = ("so the repository page says it is adopted and the Symphony browser extension's button reads Ready for"
              " Symphony")
+# The pull request's sentence on the counts of parallel work, which is true
+# only of a landed script that counts by setting.
+PARALLEL = "Some of those counts say how the work ran in parallel"
 
 
 def report(outcome="applied", states=ALL_DONE, details=None, mode="new", private=False, required_check=True):
@@ -164,20 +169,34 @@ class Body(unittest.TestCase):
         self.assertIn("Sharing of anonymous aggregates is on", body)
         self.assertIn("does not carry its metrics workflow yet", body)
         self.assertIn("write `off` in `.github/symphony-metrics`", body)
-        self.assertNotIn("Some of those counts say how the work ran in parallel", body)
+        self.assertNotIn(PARALLEL, body)
         make_template(self.template, metrics=True)
         body = self.body()
         self.assertIn("writes METRICS.json to the branch `metrics`: counts, durations and rates of the protocol at"
                       " work, and never code", body)
         self.assertIn("JUDGE.json, the failure-type frequencies that someone's own judge writes", body)
-        self.assertIn("Some of those counts say how the work ran in parallel", body)
+        self.assertIn(PARALLEL, body)
+
+    def test_the_parallel_sentence_follows_the_script_that_landed(self):
+        make_template(self.template, metrics=True)
+        for script, said in ((METRICS["tools/metrics.py"], True), (METRICS_BEFORE_BREAKDOWN, False)):
+            write(self.template, "tools/metrics.py", script)
+            for mode, files in (("new", None), ("existing", THEIR_FILES)):
+                with self.subTest(breakdown=said, mode=mode):
+                    shutil.rmtree(self.root / "target", ignore_errors=True)
+                    body = self.body(files, mode=mode)
+                    self.assertIn("writes METRICS.json to the branch `metrics`", body)
+                    if said:
+                        self.assertIn(PARALLEL, body)
+                    else:
+                        self.assertNotIn(PARALLEL, body)
 
     def test_the_metrics_sentence_follows_what_landed(self):
         make_template(self.template, metrics=True)
         files = dict(THEIR_FILES, **{".github/workflows/metrics.yml": "theirs\n"})
         body = self.body(files, mode="existing")
         self.assertIn("The metrics workflow was not written (above), so nothing is computed or shared today", body)
-        self.assertNotIn("Some of those counts say how the work ran in parallel", body)
+        self.assertNotIn(PARALLEL, body)
         self.assertNotIn("does not carry its metrics workflow yet", body)
         self.assertNotIn("`metrics`, which the workflows", body)
         self.assertIn("Never target `board`, which", body)

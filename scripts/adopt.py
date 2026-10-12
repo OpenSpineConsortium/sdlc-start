@@ -112,8 +112,15 @@ PROTOCOL_TEXT = "docs/agents/PROTOCOL.md"
 VENDORED = "tools/VENDORED"
 BOARD_WORKFLOW = ".github/workflows/board.yml"
 METRICS_WORKFLOW = ".github/workflows/metrics.yml"
+METRICS_SCRIPT = "tools/metrics.py"
 # The template's field metrics, copied in both modes once it carries both.
-METRICS_FILES = (METRICS_WORKFLOW, "tools/metrics.py")
+METRICS_FILES = (METRICS_WORKFLOW, METRICS_SCRIPT)
+# A key of METRICS.json that the template's script writes since it counts
+# the work by setting, and never wrote before. A repository keeps the script
+# it was adopted with, since no later change of the template reaches it, so
+# the pull request says the counts are sorted by who opened each pull request
+# and which session made it only where the script that landed holds the key.
+BREAKDOWN_KEY = b"by_setting"
 SWITCH = ".github/symphony-metrics"
 # Mode existing brings a workflow and the script it runs together or not
 # at all: the template's workflow would run a script of theirs by the same
@@ -793,7 +800,10 @@ def new_manifest(options, links, protocol_text, plan):
         "creator": options.creator,
         "source": options.source,
         "kind_read": options.kind_read,
-        "metrics_workflow": False,  # known once the files have landed
+        # The workflow and whether its script counts by setting are known
+        # once the files have landed.
+        "metrics_workflow": False,
+        "metrics_breakdown": False,
         "metrics_in_template": all(rel in plan for rel in METRICS_FILES),
         "protocol_text": protocol_text,
         "added": [], "replaced": [], "kept": [], "merged": [],
@@ -829,6 +839,7 @@ def adopt(options):
         note_kept_switch(target, manifest, options.metrics)
     landed = manifest["added"] + manifest["replaced"]
     manifest["metrics_workflow"] = all(rel in landed for rel in METRICS_FILES)
+    manifest["metrics_breakdown"] = manifest["metrics_workflow"] and BREAKDOWN_KEY in plan[METRICS_SCRIPT][0]
     for key in ("added", "replaced", "kept", "merged"):
         manifest[key].sort()
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -1043,10 +1054,11 @@ def sharing_section(manifest):
                          " METRICS.json, and JUDGE.json, the failure-type frequencies that someone's own judge"
                          " writes when they run it on their own machine and Claude account, and nothing else; the"
                          " dataset names this repository only by a salted hash.")
-            parts.append("Some of those counts say how the work ran in parallel, so that one person's several"
-                         " Claude Code sessions are counted apart from several people's work: the workflow sorts"
-                         " the pull requests in its memory by who opened each one, which Claude Code session made"
-                         " it and which files it changed, and writes none of them.")
+            if manifest["metrics_breakdown"]:
+                parts.append("Some of those counts say how the work ran in parallel, so that one person's several"
+                             " Claude Code sessions are counted apart from several people's work: the workflow"
+                             " sorts and counts the pull requests in its memory by who opened each one, which"
+                             " Claude Code session made it and which files it changed, and writes none of them.")
         elif manifest["metrics_in_template"]:
             parts.append("The metrics workflow was not written (above), so nothing is computed or shared today; the"
                          " switch records your choice for when it is.")
