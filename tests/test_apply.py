@@ -17,9 +17,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from trees import (CREATOR, EMPTY_LISTS, LIBRARY, P, PROTOCOL_ADDED, SPEC, THEIR_CLAUDE, THEIR_FILES, THEIR_SETTINGS,
-                   THEIR_SETTINGS_TEXT, adopt, apply, checkpoint_lists, make_checkout, make_target, make_template,
-                   snapshot, track, write)
+from trees import (CREATOR, EMPTY_LISTS, LIBRARY, METRICS_BEFORE_BREAKDOWN, P, PROTOCOL_ADDED, SPEC, THEIR_CLAUDE,
+                   THEIR_FILES, THEIR_SETTINGS, THEIR_SETTINGS_TEXT, adopt, apply, checkpoint_lists, make_checkout,
+                   make_target, make_template, snapshot, track, write)
 
 PLACEHOLDERS = tuple(P.values())
 BOARD = (".github/workflows/board.yml", "tools/board.py")
@@ -104,14 +104,23 @@ class NewMode(Scratch):
     def test_a_template_without_metrics_brings_none(self):
         _, manifest, _ = apply(self.template, self.target, self.manifest)
         self.assertFalse(manifest["metrics_workflow"])
+        self.assertFalse(manifest["metrics_breakdown"])
         self.assertFalse((self.target / ".github/workflows/metrics.yml").exists())
 
     def test_a_template_with_metrics_brings_them(self):
         make_template(self.template, metrics=True)
         _, manifest, _ = apply(self.template, self.target, self.manifest)
         self.assertTrue(manifest["metrics_workflow"])
+        self.assertTrue(manifest["metrics_breakdown"])
         self.assertIn(".github/workflows/metrics.yml", manifest["added"])
         self.assertIn("tools/metrics.py", manifest["added"])
+
+    def test_a_script_from_before_the_breakdown_lands_without_it(self):
+        make_template(self.template, metrics=True)
+        write(self.template, "tools/metrics.py", METRICS_BEFORE_BREAKDOWN)
+        _, manifest, _ = apply(self.template, self.target, self.manifest)
+        self.assertTrue(manifest["metrics_workflow"])
+        self.assertFalse(manifest["metrics_breakdown"])
 
     def test_the_whole_template_takes_no_spec(self):
         spec = write(self.root, "spec/PROTOCOL.md", SPEC)
@@ -249,6 +258,8 @@ class ExistingMode(Scratch):
         manifest = self.adopt_existing()
         self.assertFalse(manifest["metrics_workflow"])
         self.assertTrue(manifest["metrics_in_template"])
+        # The template's script counts by setting, but it did not land.
+        self.assertFalse(manifest["metrics_breakdown"])
         self.assertFalse((self.target / "tools/metrics.py").exists())
         self.assertIn(".github/workflows/metrics.yml", manifest["kept"])
         self.assertIn("tools/metrics.py", self.skipped(manifest))
@@ -301,7 +312,15 @@ class ExistingMode(Scratch):
         make_template(self.template, metrics=True)
         manifest = self.adopt_existing()
         self.assertTrue(manifest["metrics_workflow"])
+        self.assertTrue(manifest["metrics_breakdown"])
         self.assertTrue((self.target / "tools/metrics.py").exists())
+
+    def test_a_script_from_before_the_breakdown_lands_without_it(self):
+        make_template(self.template, metrics=True)
+        write(self.template, "tools/metrics.py", METRICS_BEFORE_BREAKDOWN)
+        manifest = self.adopt_existing()
+        self.assertTrue(manifest["metrics_workflow"])
+        self.assertFalse(manifest["metrics_breakdown"])
 
 
 class ExistingModeEdges(Scratch):

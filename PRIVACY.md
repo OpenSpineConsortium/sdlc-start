@@ -1,6 +1,6 @@
 # Symphony GitHub Apps privacy statement
 
-Version 1, 2026-10-11. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
+Version 2, 2026-10-12. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
 The Symphony browser extension has a statement of its own, at https://openspineconsortium.com/symphony/privacy.html.
 
 Who makes the Apps: Gregory Schwing, trading as OpenSpineConsortium ("the developer"). Questions:
@@ -97,25 +97,55 @@ nothing else. The developer's own organization's repositories are never swept.
 
 ## Field metrics: what the developer receives
 
-A repository Symphony set up runs its own workflow once a day, with GitHub's own token, which
-writes one file, `METRICS.json`, to a branch named `metrics` of your repository: eleven counts
-(claims, pull requests opened, merged, closed unmerged, reviews, changes requested, check runs
-passed and failed, conflicts seen, released claims, contributors), the median and 90th percentile of
-three waits in seconds, two rates, the protocol's release number and the words that name the schema
-and the switch. It holds no name, login, title, branch name, link, issue number, text or code; a
-test in the template fails if any of those reaches the file. The branch is as visible as your
-repository. A maintainer of your project who chooses to run the template's judge on their own
-computer, with their own Claude Code account, adds a second file, `JUDGE.json`, holding counts of
-communication failure types; the App never runs that judge and only reads the counts.
+A repository Symphony set up runs its own workflow once a day, with GitHub's own token, which writes
+one file, `METRICS.json`, to a branch named `metrics` of your repository: eleven counts (claims,
+pull requests opened, merged, closed unmerged, reviews, changes requested, check runs passed and
+failed, conflicts seen, released claims, contributors), the median and 90th percentile of three
+waits in seconds, two rates, the time it was made, the number of days it covers (30), the protocol's
+release number and the short id of its commit, and the words that name the schema and the switch.
+Since version 2 of this statement the file also holds counts of how the work ran in parallel, so
+that failure can be compared between one person running several Claude Code sessions at once and
+several people working at once: seventeen counts of the people who opened pull requests, the Claude
+Code sessions named on them, how many named one, the most pull requests, people and sessions of one
+person at work at the same moment, the conflicts the board marked or GitHub reports on open pull
+requests, and the pull requests the run could not read in full; for each of eight work settings
+(nothing else at work beside it; one session's several pull requests; one person's several sessions;
+several people; several people beside one person's several sessions; not known; the repository's own
+Claude workflows; other apps and bots), thirteen counts and sums for the pull requests that ended in
+the 30 days and those still open, such as how many merged, met a conflict or shared a changed file
+with work beside them, and how long they were at work; and, for four kinds of pairs of pull requests
+at work at the same time, seven counts of how many pairs there were and how many worked at once,
+shared a file, had one land while the other was open, or met in conflict when it did. To make the
+file the workflow reads from GitHub's API, in its memory only and for the length of the run, the
+pull requests changed in the 30 days and in the 30 before them, their commits, reviews, check runs
+and changed files, the comments made or edited on the repository's issues and pull requests in
+those 60 days, its branches and, for each claim branch with no pull request changed in the 30 days,
+its newest commit; to sort the pull requests it uses the login of the person who opened each one, the
+name of its branch, the Claude Code session link a cloud session writes into its commit messages and
+pull request descriptions (and a line `Symphony-Session:` where a session writes one) and the times
+of its commits, and to see whose files meet, the names of the files each changed; it writes none of
+them. The file holds no name, login, session link or session id, title, branch name, file name,
+link, issue number, text or code; a test in the template fails if any of those reaches the file.
+Where a repository has few pull requests a count can describe a single one, and the counts say how a
+project works, for instance that one person had three sessions' work going at once. The branch is as
+visible as your repository. A maintainer of your project who chooses to run the template's judge on
+their own computer, with their own Claude Code account, adds a second file, `JUDGE.json`, holding
+counts of communication failure types, of the conversations it judged and of those that had two or
+more people, in all and for each work setting, the totals of the failure types' three groups, the
+number of pull requests it covered that ended in the 30 days, in each work setting, the number of
+days it covered and any limit it ran under, the time it was made, which model and which version of its prompt it used, and the
+word that names its schema; the App never runs that judge and only reads that file.
 
 Once a day, at 04:17 UTC, the developer's collector lists the repositories every installation of
 SymphonyBoard reaches (receiving from GitHub their names, owners and visibility, which it holds in
 memory and never writes) and asks each for exactly those two files at the ref `metrics`, and for no
 other path. It keeps a project's `METRICS.json` only when the file says sharing is on; otherwise
 nothing of that project is stored and `JUDGE.json` is not read. Of each file it keeps a fixed list
-of numbers and the few identifier-shaped words named above; a value of another shape is dropped. The
-developer therefore learns, per repository and day, how the protocol performed in numbers, and
-nothing of what the work was.
+of numbers, the time the file was made and the few identifier-shaped words named above; a value of
+another shape is dropped. The names of the work settings and of the kinds of pairs are fixed words
+of the template, the same in every repository's file, never words of your project. The developer
+therefore learns, per repository and day, how the protocol performed in numbers, and nothing of what
+the work was.
 
 Each kept line names the repository only as a keyed hash (HMAC-SHA256) of its GitHub node id under a
 secret the developer alone holds, derived from the App's private key or set separately, so the
@@ -192,6 +222,15 @@ Symphony is for people who administer GitHub repositories. It is not directed at
 A new version of this statement is published at https://openspineconsortium.com/symphony/apps-privacy.html
 and in the front door repository, github.com/OpenSpineConsortium/symphony-start, whose PRIVACY.md is
 this text.
+
+Version 2 adds to `METRICS.json` and `JUDGE.json` the counts of how the work ran in parallel that
+the section on field metrics describes, and to `JUDGE.json` how many of its conversations had two or
+more people, the number of days it covered and any limit it ran under. It also says what the
+workflow reads to make `METRICS.json`, and names what the two files held already and version 1 left
+out: the time each was made, the number of days `METRICS.json` covers and the short id of the
+protocol's commit, and, in `JUDGE.json`, how many conversations were judged, the totals of the
+failure types' three groups, the model, the version of the prompt and the word that names its
+schema. Nothing else changed.
 
 Symphony is not a GitHub or Anthropic product. "GitHub" is GitHub's mark; "Claude" and "Claude Code"
 are Anthropic's marks, used here to say what Symphony works with.

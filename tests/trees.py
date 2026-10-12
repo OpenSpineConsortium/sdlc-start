@@ -73,8 +73,13 @@ TEMPLATE_FILES = {
 EXECUTABLE = ("scripts/check.sh",)
 METRICS = {
     ".github/workflows/metrics.yml": "name: Metrics\non:\n  schedule:\n",
-    "tools/metrics.py": "print('metrics')\n",
+    # The one key adopt.py reads the script for: the template's script writes
+    # it since it counts the work by setting, and never wrote it before.
+    "tools/metrics.py": "print('metrics', 'by_setting')\n",
 }
+# The script of a template from before the breakdown, which a repository
+# adopted from it keeps, since no later change of the template reaches it.
+METRICS_BEFORE_BREAKDOWN = "print('metrics')\n"
 # The library's spec/PROTOCOL.md, which the workflow passes as --protocol-spec.
 SPEC = "# The claim protocol\n\nThe library's own text, with no placeholder.\n"
 LIBRARY = ("tools/VENDORED", "tools/sdlc_protocol/__init__.py", "tools/sdlc_protocol/board.py")
