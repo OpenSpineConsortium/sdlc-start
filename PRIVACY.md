@@ -118,9 +118,9 @@ at work at the same time, seven counts of how many pairs there were and how many
 shared a file, had one land while the other was open, or met in conflict when it did. To make the
 file the workflow reads from GitHub's API, in its memory only and for the length of the run, the
 pull requests changed in the 30 days and in the 30 before them, their commits, reviews, check runs
-and changed files, the comments made on its issues and pull requests in those 60 days, the
-repository's branches and, for each claim branch with no pull request changed in the 30 days, its
-newest commit; to sort the pull requests it uses the login of the person who opened each one, the
+and changed files, the comments made or edited on the repository's issues and pull requests in
+those 60 days, its branches and, for each claim branch with no pull request changed in the 30 days,
+its newest commit; to sort the pull requests it uses the login of the person who opened each one, the
 name of its branch, the Claude Code session link a cloud session writes into its commit messages and
 pull request descriptions (and a line `Symphony-Session:` where a session writes one) and the times
 of its commits, and to see whose files meet, the names of the files each changed; it writes none of
@@ -132,8 +132,8 @@ visible as your repository. A maintainer of your project who chooses to run the 
 their own computer, with their own Claude Code account, adds a second file, `JUDGE.json`, holding
 counts of communication failure types, of the conversations it judged and of those that had two or
 more people, in all and for each work setting, the totals of the failure types' three groups, the
-number of pull requests it judged in each work setting, the number of days it covered and any limit
-it ran under, the time it was made, which model and which version of its prompt it used, and the
+number of pull requests it covered that ended in the 30 days, in each work setting, the number of
+days it covered and any limit it ran under, the time it was made, which model and which version of its prompt it used, and the
 word that names its schema; the App never runs that judge and only reads that file.
 
 Once a day, at 04:17 UTC, the developer's collector lists the repositories every installation of
