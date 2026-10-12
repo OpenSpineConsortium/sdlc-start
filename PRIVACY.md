@@ -1,6 +1,6 @@
 # Symphony GitHub Apps privacy statement
 
-Version 2, 2026-10-12. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
+Version 3, 2026-10-12. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
 The Symphony browser extension has a statement of its own, at https://openspineconsortium.com/symphony/privacy.html.
 
 Who makes the Apps: Gregory Schwing, trading as OpenSpineConsortium ("the developer"). Questions:
@@ -115,7 +115,20 @@ Claude workflows; other apps and bots), thirteen counts and sums for the pull re
 the 30 days and those still open, such as how many merged, met a conflict or shared a changed file
 with work beside them, and how long they were at work; and, for four kinds of pairs of pull requests
 at work at the same time, seven counts of how many pairs there were and how many worked at once,
-shared a file, had one land while the other was open, or met in conflict when it did. To make the
+shared a file, had one land while the other was open, or met in conflict when it did. Since version
+3 it also holds what the work cost, so that the cost of coordination can be measured: the date of
+the price list the estimate uses; counts of the pull requests that ended in the 30 days, of those
+merged and of those with any usage recorded against them, of the Claude Code sessions and the runs
+of the repository's Claude workflows that recorded usage, and of the records left for a later run;
+the tokens Claude used, by kind (input, cache writes, cache reads, output, in all, and those of a
+model the price list does not know) and by model family (the fixed words fable, opus, sonnet, haiku
+and other, never a model's name); what those tokens would cost at Anthropic's API list prices, in
+dollars, and the part of it the coordinator workflow spent; the seconds Claude was at work; the
+commits, failed checks and reverts of those pull requests; four of these per merged pull request;
+and, for the pull requests done alone and those done with other work beside them, thirteen counts
+and sums each (pull requests, merged, measured, measured and merged, tokens, dollars, seconds,
+commits, failed checks, first checks passed and judged, the median wait from opening to merge, and
+the time at work), with seven ratios between the two. To make the
 file the workflow reads from GitHub's API, in its memory only and for the length of the run, the
 pull requests changed in the 30 days and in the 30 before them, their commits, reviews, check runs
 and changed files, the comments made or edited on the repository's issues and pull requests in
@@ -124,8 +137,18 @@ its newest commit; to sort the pull requests it uses the login of the person who
 name of its branch, the Claude Code session link a cloud session writes into its commit messages and
 pull request descriptions (and a line `Symphony-Session:` where a session writes one) and the times
 of its commits, and to see whose files meet, the names of the files each changed; it writes none of
-them. The file holds no name, login, session link or session id, title, branch name, file name,
-link, issue number, text or code; a test in the template fails if any of those reaches the file.
+them. For what the work cost it reads two records the template's own tools leave in your
+repository, never anything from the App: the line `Symphony-Usage:` that a Claude Code session of
+the repository adds to each of its commit messages, holding token counts by model, the seconds the
+session was at work and the first eight characters of the session's id, and no word of its
+conversation; and the usage record each run of the repository's Claude workflows keeps as an
+artifact of that run, holding token counts by model, seconds, turns, the workflow, the job and the
+worker's name, and the issue and pull request the run was for, and nothing of the conversation.
+It lists and downloads those artifacts with the repository's own token, from the last 60 days, and
+keeps the records it has read in the repository's own Actions cache, so the next day's run reads
+only the new ones. The file holds no name, login, session link or session id, title, branch name,
+file name, link, issue number, model name, worker name, text or code; a test in the template fails
+if any of those reaches the file.
 Where a repository has few pull requests a count can describe a single one, and the counts say how a
 project works, for instance that one person had three sessions' work going at once. The branch is as
 visible as your repository. A maintainer of your project who chooses to run the template's judge on
@@ -141,9 +164,10 @@ SymphonyBoard reaches (receiving from GitHub their names, owners and visibility,
 memory and never writes) and asks each for exactly those two files at the ref `metrics`, and for no
 other path. It keeps a project's `METRICS.json` only when the file says sharing is on; otherwise
 nothing of that project is stored and `JUDGE.json` is not read. Of each file it keeps a fixed list
-of numbers, the time the file was made and the few identifier-shaped words named above; a value of
-another shape is dropped. The names of the work settings and of the kinds of pairs are fixed words
-of the template, the same in every repository's file, never words of your project. The developer
+of numbers, the time the file was made, the date of the price list and the few identifier-shaped
+words named above; a value of another shape is dropped. The names of the work settings, of the kinds
+of pairs, of the model families and of the two sides of the comparison are fixed words of the
+template, the same in every repository's file, never words of your project. The developer
 therefore learns, per repository and day, how the protocol performed in numbers, and nothing of what
 the work was.
 
@@ -169,7 +193,11 @@ on your default branch, or set the repository Actions variable `SDLC_METRICS` to
 workflow once, so the record on the branch says off), or uninstall SymphonyBoard, after which the
 collector reaches nothing of yours. Disabling the workflow alone does not stop sharing, because the
 branch keeps its last record and the collector reads it as that day's; turn the switch off first.
-Lines already collected stay in the dataset under the hash; they carry nothing that names you.
+With the switch off the template's sessions also stop adding the `Symphony-Usage:` line to their
+commits and its Claude workflows stop keeping usage records, and a person who wants no usage of
+theirs on their commits whatever the repository says sets `SDLC_METRICS` to `off` in their own
+environment. Lines already collected stay in the dataset under the hash; they carry nothing that
+names you.
 
 ## The App's server, where it is run
 
@@ -222,6 +250,13 @@ Symphony is for people who administer GitHub repositories. It is not directed at
 A new version of this statement is published at https://openspineconsortium.com/symphony/apps-privacy.html
 and in the front door repository, github.com/OpenSpineConsortium/symphony-start, whose PRIVACY.md is
 this text.
+
+Version 3 adds to `METRICS.json` what the work cost, as the section on field metrics describes: the
+tokens Claude used, by kind and by model family, their price at Anthropic's API list prices and the
+date of that list, the seconds Claude was at work, the counts and rates per merge they are set
+against, and the comparison of work done alone with work done in parallel; and it says which
+records in your repository the workflow reads to make them, and that the switch stops those records
+too. Nothing else changed.
 
 Version 2 adds to `METRICS.json` and `JUDGE.json` the counts of how the work ran in parallel that
 the section on field metrics describes, and to `JUDGE.json` how many of its conversations had two or
