@@ -10,13 +10,14 @@ stands in for the template's and quotes none of it: a test checks that a
 file is there, filled, kept or gone, never the template's own words.
 """
 
+import ast
 import io
 import json
 import os
 import subprocess
 import sys
 from contextlib import redirect_stderr, redirect_stdout
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 TESTS = Path(__file__).resolve().parent
 FIXTURES = TESTS / "fixtures"
@@ -62,7 +63,8 @@ TEMPLATE_FILES = {
     "docs/agents/claims/README.md": f"# Claim files\n\n- Issue: https://github.com/{P['REPO']}/issues/N\n",
     "docs/setup/github.md": "# GitHub settings\n",
     "tools/VENDORED": "sdlc-protocol 0.0.0 0000000000000000000000000000000000000000\n",
-    "tools/board.py": "print('the board')\n",
+    # The board's script runs the library, as the template's does.
+    "tools/board.py": "from sdlc_protocol import board\n\nprint('the board', board.render())\n",
     "tools/sdlc_protocol/__init__.py": "__version__ = '0.0.0'\n",
     "tools/sdlc_protocol/board.py": "def render():\n    return ''\n",
     "tools/sdlc_protocol/__pycache__/board.cpython-312.pyc": "not a real cache\n",
@@ -78,9 +80,18 @@ EXECUTABLE = ("scripts/check.sh",)
 METRICS = {
     ".github/workflows/metrics.yml": "name: Metrics\non:\n  schedule:\n",
     # The one key adopt.py reads the script for: the template's script writes
-    # it since it counts the work by setting, and never wrote it before.
-    "tools/metrics.py": "print('metrics', 'by_setting')\n",
+    # it since it counts the work by setting, and never wrote it before. Like
+    # the template's, the script imports a module beside it, which imports
+    # another, which imports the library inside a function, so the workflow
+    # runs only where all of them landed.
+    "tools/metrics.py": "import economics\n\nprint('metrics', 'by_setting', economics.priced())\n",
+    "tools/economics.py": "import usage\n\n\ndef priced():\n    return usage.counted()\n",
+    "tools/usage.py": "def counted():\n    from sdlc_protocol import board\n    return board.render()\n",
 }
+# The modules the metrics script imports, as the template's own files.
+METRICS_MODULES = ("tools/economics.py", "tools/usage.py")
+# Each workflow mode existing may bring, with the script it runs.
+WORKFLOWS = {".github/workflows/board.yml": "tools/board.py", ".github/workflows/metrics.yml": "tools/metrics.py"}
 # The script of a template from before the breakdown, which a repository
 # adopted from it keeps, since no later change of the template reaches it.
 METRICS_BEFORE_BREAKDOWN = "print('metrics')\n"
@@ -89,6 +100,8 @@ SETUP_SCRIPT_BEFORE_BOX = "#!/usr/bin/env bash\necho settings\n"
 # The library's spec/PROTOCOL.md, which the workflow passes as --protocol-spec.
 SPEC = "# The claim protocol\n\nThe library's own text, with no placeholder.\n"
 LIBRARY = ("tools/VENDORED", "tools/sdlc_protocol/__init__.py", "tools/sdlc_protocol/board.py")
+# The library's package, as a script imports it.
+LIBRARY_PACKAGE = "sdlc_protocol"
 
 # The protocol's files mode existing adds to a repository that has none of them.
 PROTOCOL_ADDED = {
@@ -169,6 +182,59 @@ def snapshot(root):
             if not path.is_symlink():
                 found[path.relative_to(root).as_posix()] = path.read_bytes()
     return found
+
+
+def imported_names(data):
+    """The top-level name of each module a Python file imports by an absolute
+    name, anywhere in it. Read here apart from adopt.py, so a test of what an
+    adoption brought never takes adopt.py's word for it."""
+    names = set()
+    for node in ast.walk(ast.parse(data)):
+        if isinstance(node, ast.Import):
+            names.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            names.add(node.module.split(".")[0])
+    return names
+
+
+def local_module(root, folder, name):
+    """The files of the tree under root by which Python finds the module name
+    in folder, which it searches first for a script there."""
+    return [rel for rel in (f"{folder}/{name}.py", f"{folder}/{name}/__init__.py") if (Path(root) / rel).exists()]
+
+
+def unmet_imports(root, script, brought):
+    """Each import of the script under root, and of every module of the tree
+    it reaches in turn, that the files brought do not meet, as "file: name":
+    a module found in the script's folder must be one of them, and is
+    followed but for the library, which is brought whole and checked by its
+    own record; any other must be one of Python's own."""
+    folder = PurePosixPath(script).parent.as_posix()
+    unmet, seen, waiting = [], set(), [script]
+    while waiting:
+        rel = waiting.pop()
+        if rel in seen:
+            continue
+        seen.add(rel)
+        for name in sorted(imported_names((Path(root) / rel).read_bytes())):
+            found = local_module(root, folder, name)
+            if not found and name in sys.stdlib_module_names:
+                continue
+            if not found or not set(found) <= set(brought):
+                unmet.append(f"{rel}: {name}")
+            elif name != LIBRARY_PACKAGE:
+                waiting += found
+    return unmet
+
+
+def run_script(root, *argv, environ=None):
+    """Run a Python script of the tree under root as a workflow does, from the
+    top of the checkout, with none of this process's own Python variables, so
+    nothing but the tree and Python's own modules is imported, and no token."""
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith("PYTHON") and key not in ("GITHUB_TOKEN", "GH_TOKEN")}
+    env.update(environ or {})
+    return subprocess.run([sys.executable, "-B", *argv], cwd=root, env=env, capture_output=True, text=True)
 
 
 def checkpoint_lists(text):

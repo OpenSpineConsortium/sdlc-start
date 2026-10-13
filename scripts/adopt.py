@@ -22,12 +22,15 @@ body and labels, one subcommand per step:
          existing is the protocol only, the files the template's guide
          for a repository it did not make has a person copy by hand, so
          the template's tests, checks and documents never meet the
-         person's; nothing there is overwritten, a workflow and the
-         script it runs come together or not at all, a file the
-         repository ignores is never written, the protocol's text is the
-         library's spec when --protocol-spec names it, CLAUDE.md gains
-         one section once that text has landed, and .claude/settings.json
-         the keys that enable the symphony plugin.
+         person's; nothing there is overwritten, a workflow and every
+         script it runs, the modules of the template its script imports
+         among them, come together or not at all, and stay out with the
+         vendored library when they import it, the metrics workflow comes
+         only with its switch, a file the repository ignores is never
+         written, the protocol's text is the library's spec when
+         --protocol-spec names it, CLAUDE.md gains one section once that
+         text has landed, and .claude/settings.json the keys that enable
+         the symphony plugin.
   body   prints the pull request's text from the manifest, or with
          --title its title; with --settings, the report scripts/setup.py
          wrote is rendered into it, so the pull request says which of
@@ -52,6 +55,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import warnings
 from pathlib import Path, PurePosixPath
 
 MANIFEST_SCHEMA = "sdlc-adopt/1"
@@ -101,6 +105,8 @@ INIT_SCRIPT = "tools/template_init.py"
 
 # Mode existing: the protocol and nothing else.
 PROTOCOL_TREE = "tools/sdlc_protocol"
+# The vendored library's package, as a script imports it.
+LIBRARY_PACKAGE = PurePosixPath(PROTOCOL_TREE).name
 PROTOCOL_FILES = (
     "tools/VENDORED",
     "tools/board.py",
@@ -111,10 +117,11 @@ PROTOCOL_FILES = (
 PROTOCOL_TEXT = "docs/agents/PROTOCOL.md"
 VENDORED = "tools/VENDORED"
 BOARD_WORKFLOW = ".github/workflows/board.yml"
+BOARD_SCRIPT = "tools/board.py"
+# The template's field metrics, copied in both modes once it carries the
+# workflow and its script.
 METRICS_WORKFLOW = ".github/workflows/metrics.yml"
 METRICS_SCRIPT = "tools/metrics.py"
-# The template's field metrics, copied in both modes once it carries both.
-METRICS_FILES = (METRICS_WORKFLOW, METRICS_SCRIPT)
 # A key of METRICS.json that the template's script writes since it counts
 # the work by setting, and never wrote before. A repository keeps the script
 # it was adopted with, since no later change of the template reaches it, so
@@ -122,14 +129,24 @@ METRICS_FILES = (METRICS_WORKFLOW, METRICS_SCRIPT)
 # and which session made it only where the script that landed holds the key.
 BREAKDOWN_KEY = b"by_setting"
 SWITCH = ".github/symphony-metrics"
-# Mode existing brings a workflow and the script it runs together or not
+# Mode existing brings a workflow and the scripts it runs together or not
 # at all: the template's workflow would run a script of theirs by the same
-# name, with contents: write, and theirs would run the template's. The
-# vendored library and its record are one unit the same way, so a release's
-# modules never lie next to an older copy's.
+# name, with contents: write, and theirs would run the template's. Those
+# scripts are the one the workflow runs and every module of the template
+# that one imports, and theirs in turn, read from the template's files at
+# run time (unit_files), since the template's script may come to import a
+# module the front door has never heard of, and the workflow would then
+# fail at its first run. A file of theirs holding the template's bytes, as
+# an earlier adoption left it, stands in the way of nothing. That reaches
+# the template's modules alone: a file of theirs named like one of Python's
+# own modules is still what the scripts import in its place. The vendored
+# library and its record are one unit the same way, so a release's modules
+# never lie next to an older copy's, and a workflow whose scripts import
+# the library stays out with it; the metrics workflow stays out with its
+# switch too, which it reads as on where there is none.
 UNITS = (
-    ("the board's workflow and its script", (BOARD_WORKFLOW, "tools/board.py")),
-    ("the metrics workflow and its script", METRICS_FILES),
+    ("the board's workflow and its script", BOARD_WORKFLOW, BOARD_SCRIPT),
+    ("the metrics workflow and the scripts it runs", METRICS_WORKFLOW, METRICS_SCRIPT),
 )
 LIBRARY_UNIT = "the vendored library and its record"
 # A file the repository ignores is committed only by force, and git then
@@ -421,6 +438,78 @@ def read_spec(options):
     return path.read_bytes(), False
 
 
+def imported_modules(rel, data):
+    """The top-level name of each module the Python file rel imports by an
+    absolute name, wherever in the file the import stands, since one inside
+    a function runs too once the function is called. A file that does not
+    parse is refused in one line, which quotes nothing of it, as the log
+    that would show it is public; for the same reason the warnings the
+    parser writes on its own, such as one for an escape Python does not
+    know, which name the file's line and may print it, are not let out."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            tree = ast.parse(data, filename=rel)
+    except (SyntaxError, ValueError):
+        raise AdoptError(f"the template's {rel} does not parse as Python") from None
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name.partition(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            names.add(node.module.partition(".")[0])
+    return names
+
+
+def module_files(plan, folder, name):
+    """The files of the template's module name where a script in folder
+    finds it, Python putting the script's folder first on its path: name.py,
+    or every file of the package name; none for a module the template does
+    not have, such as one of Python's own."""
+    return sorted(rel for rel in plan if rel == f"{folder}/{name}.py" or rel.startswith(f"{folder}/{name}/"))
+
+
+def unit_files(plan, workflow, script):
+    """A workflow's unit as the plan holds it, or nothing when the plan lacks
+    the workflow or its script: the workflow, the script, every module of
+    the template the script imports and every one those import in turn. The
+    vendored library is left out, being a unit of its own."""
+    if workflow not in plan or script not in plan:
+        return []
+    folder = PurePosixPath(script).parent.as_posix()
+    files, waiting = [workflow], [script]
+    while waiting:
+        rel = waiting.pop(0)
+        if rel in files:
+            continue
+        files.append(rel)
+        if rel.endswith(".py"):
+            for name in sorted(imported_modules(rel, plan[rel][0]) - {LIBRARY_PACKAGE}):
+                waiting += module_files(plan, folder, name)
+    return files
+
+
+def needs_library(plan, files):
+    """Whether a Python file among files imports the vendored library."""
+    return any(LIBRARY_PACKAGE in imported_modules(rel, plan[rel][0]) for rel in files if rel.endswith(".py"))
+
+
+def workflow_units(plan):
+    """The units of UNITS that the plan holds, each as its name, its files and
+    whether it needs the vendored library."""
+    units = []
+    for name, workflow, script in UNITS:
+        files = unit_files(plan, workflow, script)
+        if files:
+            units.append((name, files, needs_library(plan, files)))
+    return units
+
+
+def metrics_files(plan):
+    """The metrics workflow's unit in the plan, or nothing."""
+    return unit_files(plan, METRICS_WORKFLOW, METRICS_SCRIPT)
+
+
 def protocol_plan(staged, spec):
     """Mode existing's files out of the staged tree, and where the protocol's
     text came from: the library's spec when one was passed, the template's
@@ -433,8 +522,8 @@ def protocol_plan(staged, spec):
     if spec is None and PROTOCOL_TEXT not in staged:
         raise AdoptError(f"the template has no {PROTOCOL_TEXT}")
     plan[PROTOCOL_TEXT] = staged[PROTOCOL_TEXT] if spec is None else spec
-    if all(rel in staged for rel in METRICS_FILES):
-        plan.update({rel: staged[rel] for rel in METRICS_FILES})
+    for _, workflow, script in UNITS:
+        plan.update({rel: staged[rel] for rel in unit_files(staged, workflow, script)})
     plan[SWITCH] = staged[SWITCH]
     return plan, ("template" if spec is None else "spec")
 
@@ -575,22 +664,126 @@ def in_the_way(target, rel, ignored):
     return None
 
 
+def first_in_the_way(target, files, ignored):
+    """The first of files that stands in the way of its unit, said as "`rel`
+    is ...", or None."""
+    for rel in files:
+        cause = in_the_way(target, rel, ignored)
+        if cause:
+            return f"`{rel}` {cause}"
+    return None
+
+
+def hold_back(held, target, files, ignored, why):
+    """Hold back, for why, each of files that does not stand in the way
+    itself; one that does keeps its own outcome."""
+    for rel in files:
+        if not in_the_way(target, rel, ignored):
+            held[rel] = why
+
+
+def holds_the_templates(target, rel, data):
+    """Whether the repository's file rel holds the template's bytes already."""
+    real, why = existing_file(target, rel)
+    return why is None and real.read_bytes() == data
+
+
+def first_unlike_the_templates(target, plan, files, ignored):
+    """The first of files that stands in the way of its unit, said as "`rel`
+    is ...", or None, passing over a file of theirs that holds the template's
+    bytes already, from an earlier adoption or copied by hand from the same
+    template: it is the template's in all but name, so the unit comes around
+    it, and a repository adopted before a module joined the unit gains the
+    module when it asks again."""
+    for rel in files:
+        cause = in_the_way(target, rel, ignored)
+        if cause and not holds_the_templates(target, rel, plan[rel][0]):
+            return f"`{rel}` {cause}"
+    return None
+
+
+def in_place(target, plan, manifest, rel):
+    """Whether the template's rel is in the repository once the pull request
+    is merged: written by it, or kept as a file of theirs that holds the
+    template's bytes already."""
+    if rel in manifest["added"] or rel in manifest["replaced"]:
+        return True
+    return rel in manifest["kept"] and holds_the_templates(target, rel, plan[rel][0])
+
+
+def library_unlike_the_templates(target, plan, ignored, library, held):
+    """Why the vendored library will not be the template's once the pull
+    request is merged, said as "`rel` is ...", or None: a file of it is held
+    back, or one of theirs differs from the template's."""
+    if any(rel in held for rel in library):
+        return first_in_the_way(target, library, ignored)
+    return first_unlike_the_templates(target, plan, library, ignored)
+
+
+def switch_left_out(target, ignored):
+    """Why the metrics switch will not be in the pull request, said as "`rel`
+    is ...", or None: the repository ignores it, or it cannot be written
+    there. A switch of theirs is kept, and says what it says."""
+    if SWITCH in ignored:
+        return f"`{SWITCH}` is ignored by this repository"
+    if blocked(target, SWITCH):
+        return f"`{SWITCH}` cannot be written here"
+    return None
+
+
+def hold_back_library(held, target, plan, ignored):
+    """Hold the vendored library back whole while a file of it stands in the
+    way, and say why it will not be the template's once the pull request is
+    merged, or None."""
+    library = [rel for rel in plan if rel.startswith(PROTOCOL_TREE + "/") or rel == VENDORED]
+    blocker = first_in_the_way(target, library, ignored)
+    if blocker:
+        hold_back(held, target, library, ignored, f"{blocker}, and {LIBRARY_UNIT} are brought together or not at all")
+    return library_unlike_the_templates(target, plan, ignored, library, held)
+
+
 def unit_holdbacks(target, plan, ignored):
     """rel -> why, for each file of a unit that would be added while another
     file of the unit is theirs, blocked or ignored: the unit is then left
-    whole, and the file that stands in the way is named."""
-    units = [(name, [rel for rel in files if rel in plan]) for name, files in UNITS]
-    units.append((LIBRARY_UNIT, [rel for rel in plan if rel.startswith(PROTOCOL_TREE + "/") or rel == VENDORED]))
+    whole, and the file that stands in the way is named. A unit whose
+    scripts import the vendored library is left whole too while the library
+    will not be the template's, since they would fail at an import, or run
+    a library of theirs; and the metrics workflow's while the switch will
+    not be in the pull request, since the form's choice would then be in no
+    file, and the workflow reads a missing switch as on."""
     held = {}
-    for name, files in units:
-        causes = {rel: in_the_way(target, rel, ignored) for rel in files}
-        standing = [rel for rel in files if causes[rel]]
-        if standing:
-            other = standing[0]
-            for rel in files:
-                if not causes[rel]:
-                    held[rel] = f"`{other}` {causes[other]}, and {name} are brought together or not at all"
+    unlike = hold_back_library(held, target, plan, ignored)
+    switch = switch_left_out(target, ignored)
+    landing = []
+    for name, files, needs in workflow_units(plan):
+        blocker = first_unlike_the_templates(target, plan, files, ignored)
+        if blocker:
+            hold_back(held, target, files, ignored, f"{blocker}, and {name} are brought together or not at all")
+        elif needs and unlike:
+            hold_back(held, target, files, ignored,
+                      f"{unlike}, so the vendored library is not brought, and {name} need it")
+        elif switch and METRICS_WORKFLOW in files:
+            hold_back(held, target, files, ignored,
+                      f"{switch}, and {name} come only with the metrics switch, which says whether they share")
+        else:
+            landing.append((name, files))
+    hold_back_sharers(held, target, ignored, landing)
     return held
+
+
+def hold_back_sharers(held, target, ignored, landing):
+    """Hold back each unit of landing one of whose modules stays out with
+    another workflow that shares it, since it would land without it; again
+    until none is caught, as each one held back may catch another."""
+    while True:
+        caught = [(name, files) for name, files in landing if any(rel in held for rel in files)]
+        if not caught:
+            return
+        for name, files in caught:
+            shared = next(rel for rel in files if rel in held)
+            hold_back(held, target, [rel for rel in files if rel not in held], ignored,
+                      f"`{shared}` stays out with another workflow, and {name} are brought together or not at all")
+            landing.remove((name, files))
 
 
 def with_section(text):
@@ -753,13 +946,37 @@ def first_word(text):
     return words[0].lower() if words else ""
 
 
+def kept_switch_word(target):
+    """The first word of the switch the repository has, as the template's
+    tools/metrics.py reads it; nothing where it cannot be read, which that
+    script reads as off."""
+    real, _ = existing_file(target, SWITCH)
+    try:
+        return first_word(real.read_text(encoding="utf-8")) if real else ""
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
+def switch_reads(target, manifest, metrics, ignored):
+    """The switch as the template's metrics workflow reads it once the pull
+    request is merged, on or off: the form's word where the pull request
+    writes it; where it keeps the repository's own, on only when its first
+    word is on; on where the repository ignores it, since it is then missing
+    from every clone and a missing switch is read as on; and off where
+    something of theirs stands in its place, which cannot be read."""
+    if SWITCH in manifest["added"] or SWITCH in manifest["replaced"]:
+        return metrics
+    if SWITCH in manifest["kept"]:
+        return "on" if kept_switch_word(target) == "on" else "off"
+    return "on" if SWITCH in ignored else "off"
+
+
 def note_kept_switch(target, manifest, metrics):
     """Say so when mode existing kept a switch that says something else than
     the form asked."""
     if SWITCH not in manifest["kept"]:
         return
-    real, _ = existing_file(target, SWITCH)
-    said = first_word(real.read_text(encoding="utf-8", errors="replace")) if real else ""
+    said = kept_switch_word(target)
     if said != metrics:
         if said in ("on", "off"):
             shown = f"`{said}`"
@@ -812,12 +1029,14 @@ def new_manifest(options, links, protocol_text, plan):
         "creator": options.creator,
         "source": options.source,
         "kind_read": options.kind_read,
-        # The workflow, whether its script counts by setting and whether the
-        # setup script ticks the box are known once the files have landed.
+        # The workflow, whether its script counts by setting, what it will
+        # read in the switch and whether the setup script ticks the box are
+        # known once the files have landed.
         "metrics_workflow": False,
         "metrics_breakdown": False,
+        "switch_reads": options.metrics,
         "setup_script_ticks_box": False,
-        "metrics_in_template": all(rel in plan for rel in METRICS_FILES),
+        "metrics_in_template": bool(metrics_files(plan)),
         "protocol_text": protocol_text,
         "added": [], "replaced": [], "kept": [], "merged": [],
         "skipped": [{"path": rel, "why": "a link in the template, which is never followed"} for rel in links],
@@ -851,8 +1070,10 @@ def adopt(options):
         merge_settings(target, manifest, ignored)
         note_kept_switch(target, manifest, options.metrics)
     landed = manifest["added"] + manifest["replaced"]
-    manifest["metrics_workflow"] = all(rel in landed for rel in METRICS_FILES)
+    metrics = metrics_files(plan)
+    manifest["metrics_workflow"] = bool(metrics) and all(in_place(target, plan, manifest, rel) for rel in metrics)
     manifest["metrics_breakdown"] = manifest["metrics_workflow"] and BREAKDOWN_KEY in plan[METRICS_SCRIPT][0]
+    manifest["switch_reads"] = switch_reads(target, manifest, options.metrics, ignored)
     manifest["setup_script_ticks_box"] = SETUP_SCRIPT in landed and ACTIONS_PATH in plan[SETUP_SCRIPT][0]
     for key in ("added", "replaced", "kept", "merged"):
         manifest[key].sort()
@@ -1057,32 +1278,81 @@ def kind_note(manifest):
             " kind.")
 
 
+def switch_written(manifest):
+    """Whether the switch is in the repository once the pull request is
+    merged: written by it, or kept as the repository had it."""
+    return any(SWITCH in manifest[key] for key in ("added", "replaced", "kept"))
+
+
+def switch_said(manifest):
+    """The switch as this pull request leaves it and as the metrics workflow
+    will read it: written with the form's word, kept with the repository's
+    own, or not written, where its absence or what stands in its place
+    decides; never the form's word where the switch does not hold it."""
+    reads = manifest["switch_reads"]
+    if SWITCH in manifest["kept"]:
+        return f"`{SWITCH}`, which this repository had already and keeps, is read as `{reads}`"
+    if switch_written(manifest):
+        return f"`{SWITCH}` says `{reads}`"
+    if reads == "on":
+        return f"`{SWITCH}` was not written (above), and a missing switch is read as `on`"
+    return f"`{SWITCH}` was not written (above), and what stands in its place is read as `off`"
+
+
+def metrics_idle(manifest):
+    """Why nothing is computed where sharing is on: the template carries no
+    metrics workflow, or it did not land, or it landed without a script it
+    runs."""
+    if not manifest["metrics_in_template"]:
+        return ("The template does not carry its metrics workflow yet, so nothing is computed or shared today; the"
+                " switch records your choice for when it does.")
+    if METRICS_WORKFLOW in manifest["added"] or METRICS_WORKFLOW in manifest["replaced"]:
+        return ("The metrics workflow was written, but not every script it runs was (above), so it cannot run and"
+                " nothing is computed or shared today; the switch records your choice for when it can.")
+    return ("The metrics workflow was not written (above), so nothing is computed or shared today; the switch records"
+            " your choice for when it is.")
+
+
+def metrics_at_work(manifest):
+    """What the metrics workflow computes and shares where sharing is on, in
+    sentences: the counts of parallel work only where the script that landed
+    makes them, and, in mode existing, that what Claude spends stays at zero,
+    since nothing there records it."""
+    if not manifest["metrics_workflow"]:
+        return [metrics_idle(manifest)]
+    said = ["Once a day `.github/workflows/metrics.yml` writes METRICS.json to the branch `metrics`: counts,"
+            " durations and rates of the protocol at work, and never code, text, titles, logins, branch names or"
+            " repository names. The Symphony App reads that branch's METRICS.json, and JUDGE.json, the failure-type"
+            " frequencies that someone's own judge writes when they run it on their own machine and Claude account,"
+            " and nothing else; the dataset names this repository only by a salted hash."]
+    if manifest["metrics_breakdown"]:
+        said.append("Some of those counts say how the work ran in parallel, so that one person's several Claude Code"
+                    " sessions are counted apart from several people's work: the workflow sorts and counts the pull"
+                    " requests in its memory by who opened each one, which Claude Code session made it and which"
+                    " files it changed, and writes none of them.")
+    if manifest["mode"] == "existing":
+        said.append("The tokens Claude used, their price and the time it was at work, which METRICS.json counts as"
+                    " what the work cost, stay at zero here: the template's session hooks and its Claude workflows"
+                    " record them, and the protocol alone brings neither.")
+    return said
+
+
 def sharing_section(manifest):
+    """What is shared, as the switch the pull request leaves will have it,
+    which is not always what the form asked: a switch of the repository's
+    own is kept, and one that cannot be written leaves the metrics
+    workflow out with it in mode existing."""
     parts = ["## What is shared", ""]
-    if manifest["metrics"] == "on":
-        parts.append(f"Sharing of anonymous aggregates is on: `{SWITCH}` says `on`.")
-        if manifest["metrics_workflow"]:
-            parts.append("Once a day `.github/workflows/metrics.yml` writes METRICS.json to the branch `metrics`:"
-                         " counts, durations and rates of the protocol at work, and never code, text, titles,"
-                         " logins, branch names or repository names. The Symphony App reads that branch's"
-                         " METRICS.json, and JUDGE.json, the failure-type frequencies that someone's own judge"
-                         " writes when they run it on their own machine and Claude account, and nothing else; the"
-                         " dataset names this repository only by a salted hash.")
-            if manifest["metrics_breakdown"]:
-                parts.append("Some of those counts say how the work ran in parallel, so that one person's several"
-                             " Claude Code sessions are counted apart from several people's work: the workflow"
-                             " sorts and counts the pull requests in its memory by who opened each one, which"
-                             " Claude Code session made it and which files it changed, and writes none of them.")
-        elif manifest["metrics_in_template"]:
-            parts.append("The metrics workflow was not written (above), so nothing is computed or shared today; the"
-                         " switch records your choice for when it is.")
-        else:
-            parts.append("The template does not carry its metrics workflow yet, so nothing is computed or shared"
-                         " today; the switch records your choice for when it does.")
+    if not switch_written(manifest) and not manifest["metrics_workflow"]:
+        parts.append(f"Nothing is computed or shared today: `{SWITCH}` was not written (above), and this pull request"
+                     " brings no metrics workflow to read it.")
+    elif manifest["switch_reads"] == "on":
+        parts.append(f"Sharing of anonymous aggregates is on: {switch_said(manifest)}.")
+        parts += metrics_at_work(manifest)
         parts.append(f"To turn it off at any time, write `off` in `{SWITCH}` on the default branch, or set the"
                      " repository variable SDLC_METRICS to `off`; uninstalling the App stops it too.")
     else:
-        parts.append(f"Nothing is shared: `{SWITCH}` says `off`, so the metrics workflow, where there is one, writes"
+        parts.append(f"Nothing is shared: {switch_said(manifest)}, so the metrics workflow, where there is one, writes"
                      " only that sharing is off. Write `on` there to share anonymous aggregates later.")
     return parts[:2] + [" ".join(parts[2:]), ""]
 
@@ -1390,7 +1660,7 @@ def next_steps_existing(manifest, report=None):
                  f" the board at https://github.com/{repo}/blob/board/STATE.md as it does today.")
     else:
         board = (f"4. `{BOARD_WORKFLOW}` was not written (above), so nothing renders the board until the board's"
-                 " workflow and its script are brought together by hand.")
+                 " workflow, its script and the vendored library are brought together by hand.")
     protocol = PROTOCOL_TEXT if PROTOCOL_TEXT in added else "the symphony plugin's claim protocol"
     return [
         "1. Read this pull request, then merge it.",
