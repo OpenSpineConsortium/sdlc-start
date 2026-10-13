@@ -159,6 +159,108 @@ class Body(unittest.TestCase):
                       " this repository's own, and the vendored library and its record are brought together or not"
                       " at all", body)
 
+    def test_a_held_back_library_holds_back_the_workflows_that_import_it(self):
+        make_template(self.template, metrics=True)
+        body = self.body(dict(THEIR_FILES, **{"tools/VENDORED": "theirs\n"}), mode="existing")
+        self.assertIn("- `.github/workflows/board.yml` and `tools/board.py`: `tools/VENDORED` is this repository's own,"
+                      " so the vendored library is not brought, and the board's workflow and its script need it", body)
+        self.assertIn("- `.github/workflows/metrics.yml`, `tools/economics.py`, `tools/metrics.py` and"
+                      " `tools/usage.py`: `tools/VENDORED` is this repository's own, so the vendored library is not"
+                      " brought, and the metrics workflow and the scripts it runs need it", body)
+        self.assertIn("4. `.github/workflows/board.yml` was not written (above), so nothing renders the board until the"
+                      " board's workflow, its script and the vendored library are brought together by hand.", body)
+        self.assertIn("The metrics workflow was not written (above), so nothing is computed or shared today", body)
+        self.assertNotIn("Never target", body)
+
+    def test_the_added_files_name_every_module_the_metrics_script_imports(self):
+        make_template(self.template, metrics=True)
+        body = self.body(THEIR_FILES, mode="existing")
+        for rel in METRICS:
+            self.assertIn(f"- `{rel}`", body)
+        self.assertIn("Never target `board` or `metrics`, which the workflows force-push.", body)
+
+    def test_a_module_of_theirs_holds_the_metrics_workflow_back(self):
+        make_template(self.template, metrics=True)
+        body = self.body(dict(THEIR_FILES, **{"tools/usage.py": "theirs\n"}), mode="existing")
+        self.assertIn("- `.github/workflows/metrics.yml`, `tools/economics.py` and `tools/metrics.py`: `tools/usage.py`"
+                      " is this repository's own, and the metrics workflow and the scripts it runs are brought together"
+                      " or not at all", body)
+        self.assertIn("Kept as they are, because this repository has them already:\n\n- `tools/usage.py`", body)
+        self.assertIn("The metrics workflow was not written (above), so nothing is computed or shared today", body)
+        self.assertIn("Never target `board`, which the workflows force-push.", body)
+
+    def test_an_ignored_switch_is_never_said_to_hold_the_forms_word(self):
+        """The switch the form's choice goes to is ignored, so it is not in the
+        pull request, and the metrics workflow, which would read its absence
+        as on, stays out with it, whichever word the form gave; the body says
+        so, and never that the switch says off or on."""
+        make_template(self.template, metrics=True)
+        for metrics in ("off", "on"):
+            with self.subTest(metrics=metrics):
+                shutil.rmtree(self.root / "target", ignore_errors=True)
+                body = self.body(NO_GIT, ignore="*metrics\n", mode="existing", metrics=metrics)
+                self.assertIn("- `.github/workflows/metrics.yml`, `tools/economics.py`, `tools/metrics.py` and"
+                              " `tools/usage.py`: `.github/symphony-metrics` is ignored by this repository, and the"
+                              " metrics workflow and the scripts it runs come only with the metrics switch, which says"
+                              " whether they share", body)
+                self.assertIn("## What is shared\n\nNothing is computed or shared today: `.github/symphony-metrics` was"
+                              " not written (above), and this pull request brings no metrics workflow to read it.\n",
+                              body)
+                self.assertNotIn("says `off`", body)
+                self.assertNotIn("says `on`", body)
+                self.assertNotIn("Sharing of anonymous aggregates is on", body)
+                self.assertIn("Never target `board`, which the workflows force-push.", body)
+
+    def test_an_ignored_switch_beside_a_metrics_workflow_there_already_is_said_to_read_as_on(self):
+        make_template(self.template, metrics=True)
+        body = self.body(dict(NO_GIT, **METRICS), ignore="*metrics\n", mode="existing", metrics="off")
+        self.assertIn("Sharing of anonymous aggregates is on: `.github/symphony-metrics` was not written (above), and a"
+                      " missing switch is read as `on`. Once a day", body)
+        self.assertIn("or set the repository variable SDLC_METRICS to `off`", body)
+        self.assertNotIn("Nothing is shared", body)
+
+    def test_a_kept_switch_says_what_is_shared_whatever_the_form_asked(self):
+        make_template(self.template, metrics=True)
+        body = self.body(dict(THEIR_FILES, **{".github/symphony-metrics": "on\n"}), mode="existing", metrics="off")
+        self.assertIn("Sharing of anonymous aggregates is on: `.github/symphony-metrics`, which this repository had"
+                      " already and keeps, is read as `on`. Once a day `.github/workflows/metrics.yml` writes", body)
+        self.assertIn("says `on`, where the form asked for `off`; it is kept", body)
+        self.assertNotIn("Nothing is shared", body)
+        shutil.rmtree(self.root / "target")
+        body = self.body(dict(THEIR_FILES, **{".github/symphony-metrics": "maybe\n"}), mode="existing")
+        self.assertIn("Nothing is shared: `.github/symphony-metrics`, which this repository had already and keeps, is"
+                      " read as `off`, so the metrics workflow, where there is one, writes only that sharing is off.",
+                      body)
+        self.assertNotIn("Sharing of anonymous aggregates is on", body)
+
+    def test_a_switch_that_cannot_be_written_in_new_mode_is_said_to_read_as_off(self):
+        make_template(self.template, metrics=True)
+        body = self.body({"README.md": "# widget\n", ".github/symphony-metrics/notes.md": "their notes\n"})
+        self.assertIn("Nothing is shared: `.github/symphony-metrics` was not written (above), and what stands in its"
+                      " place is read as `off`, so the metrics workflow", body)
+        self.assertNotIn("Sharing of anonymous aggregates is on", body)
+
+    def test_a_workflow_written_without_a_script_it_runs_is_said_not_to_run(self):
+        make_template(self.template, metrics=True)
+        body = self.body({"README.md": "# widget\n", "tools/usage.py/notes.md": "their folder\n"})
+        self.assertIn("- `.github/workflows/metrics.yml`\n", body)
+        self.assertIn("- `tools/usage.py`: a folder of yours stands where this file goes", body)
+        self.assertIn("The metrics workflow was written, but not every script it runs was (above), so it cannot run and"
+                      " nothing is computed or shared today; the switch records your choice for when it can.", body)
+        self.assertNotIn("The metrics workflow was not written", body)
+
+    def test_what_claude_spends_is_said_to_stay_at_zero_with_the_protocol_alone(self):
+        """Mode existing brings neither the template's session hooks nor its
+        Claude workflows, which record what Claude spends, so the figures of
+        what the work cost stay at zero there."""
+        make_template(self.template, metrics=True)
+        zero = ("The tokens Claude used, their price and the time it was at work, which METRICS.json counts as what"
+                " the work cost, stay at zero here: the template's session hooks and its Claude workflows record"
+                " them, and the protocol alone brings neither.")
+        self.assertIn(zero, self.body(THEIR_FILES, mode="existing"))
+        shutil.rmtree(self.root / "target")
+        self.assertNotIn(zero, self.body())
+
     def test_ignored_files_get_what_to_do_instead(self):
         """The form adopts a repository once, so the note gives the steps by
         hand and never sends the person back to it after the merge."""
@@ -242,29 +344,13 @@ class Body(unittest.TestCase):
                       " `.github/symphony-metrics` says `off` too, though the form left sharing on", body)
         self.assertNotIn("Sharing of anonymous aggregates is on", body)
 
-    def test_a_switch_that_could_not_be_written_shares_nothing_and_says_so(self):
-        """A repository that ignores the switch gets neither it nor the
-        metrics workflow, whatever the form asked, and the body says so
-        rather than naming a switch that is not there."""
-        make_template(self.template, metrics=True)
-        for metrics in ("off", "on"):
-            with self.subTest(metrics=metrics):
-                shutil.rmtree(self.root / "target", ignore_errors=True)
-                body = self.body(NO_GIT, ignore="*-metrics\n", mode="existing", metrics=metrics)
-                self.assertIn("Nothing is shared: the metrics switch `.github/symphony-metrics` was not written"
-                              " (above), and the metrics workflow comes only with it, so that was not written either.",
-                              body)
-                self.assertIn("come only with the metrics switch, which says whether they share", body)
-                self.assertNotIn("Sharing of anonymous aggregates is on", body)
-                self.assertNotIn("says `on`", body)
-                self.assertNotIn("Never target `board` or `metrics`", body)
-
     def test_a_kept_switch_that_says_off_is_never_called_on(self):
         """The note says the kept switch says off; the section on sharing
         says the same, not what the form asked."""
         body = self.body(dict(NO_GIT, **{".github/symphony-metrics": "off\n"}), mode="existing")
         self.assertIn(".github/symphony-metrics was there already and says `off`, where the form asked for `on`", body)
-        self.assertIn("Nothing is shared: `.github/symphony-metrics` says `off`", body)
+        self.assertIn("Nothing is shared: `.github/symphony-metrics`, which this repository had already and keeps, is"
+                      " read as `off`, so the metrics workflow", body)
         self.assertNotIn("Sharing of anonymous aggregates is on", body)
 
     def test_the_title_per_mode(self):

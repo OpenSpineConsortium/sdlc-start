@@ -198,7 +198,8 @@ unless you ticked the form's box "Do not share anonymous aggregates" or a switch
 own says `off` already, under that name or under `.github/sdlc-metrics`, its name before the rename
 to Symphony, which the adoption never turns on; the sweep's adoptions write `on` on the same terms.
 Where the switch cannot be written, because the repository ignores it or something of its own
-stands where it goes, the adoption brings no metrics workflow either, and nothing is shared. To turn
+stands where it goes, nothing the adoption brings shares: the protocol alone then brings no metrics
+workflow, and the whole template's reads what stands in the switch's place as off. To turn
 it off at any time: write `off` as the first word of `.github/symphony-metrics` on your default
 branch (in a repository adopted before the rename, whose workflow reads only `.github/sdlc-metrics`,
 write it there), or set the repository Actions variable `SDLC_METRICS` to `off` (and run the
@@ -265,7 +266,7 @@ this text.
 
 Version 5 says that the run also reads the two switches under their names before the rename to
 Symphony, `.github/sdlc-adopt` and `.github/sdlc-metrics`; that an adoption never turns on a switch
-of the repository's own that says off already, under either name, and brings no metrics workflow
+of the repository's own that says off already, under either name, and brings nothing that shares
 where it cannot write the switch; that a repository adopted before the rename turns sharing off in
 `.github/sdlc-metrics`, the switch its workflow reads; and that Symphony Setup also uninstalls
 itself after a request refused because the repository is adopted already. Nothing the developer

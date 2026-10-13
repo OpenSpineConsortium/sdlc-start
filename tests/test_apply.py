@@ -5,13 +5,17 @@ marker folder gone, a blank checkpoint and an empty checkpoint block, a
 file of theirs the template also has replaced and listed. Mode existing
 must change nothing of theirs but CLAUDE.md, which gains one section once
 the protocol's text landed, and .claude/settings.json, which gains the
-keys it lacks; a workflow and its script come together or not at all, and
-a file the repository ignores is never written. Neither copies LICENSE,
-follows a link out of the template, or writes through a link out of the
-target or into its .git; in neither does the metrics workflow land
-without its switch, and an adoption that could not write the protocol's
-text, by which the front door knows an adoption, is refused before
-anything is written.
+keys it lacks; a workflow and every script it runs come together or not
+at all, and with the library they import, so every module of the
+template that a script which lands imports landed with it, or was there
+already with the template's bytes, and the metrics workflow comes only
+with its switch; and a file the repository ignores is never written.
+Neither copies LICENSE, follows a link out of the template, or writes
+through a link out of the target or into its .git; in either, an off the
+repository says already, in the switch or under its old name, keeps the
+switch the adoption writes off, and an adoption that could not write the
+protocol's text, by which the front door knows an adoption, is refused
+before anything is written.
 """
 
 import json
@@ -21,13 +25,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from trees import (CREATOR, EMPTY_LISTS, LIBRARY, METRICS_BEFORE_BREAKDOWN, P, PROTOCOL_ADDED, SETUP_SCRIPT_BEFORE_BOX,
-                   SPEC, THEIR_CLAUDE, THEIR_FILES, THEIR_SETTINGS, THEIR_SETTINGS_TEXT, adopt, apply, checkpoint_lists,
-                   make_checkout, make_target, make_template, snapshot, track, write)
+from trees import (CREATOR, EMPTY_LISTS, LIBRARY, METRICS, METRICS_BEFORE_BREAKDOWN, METRICS_MODULES, P,
+                   PROTOCOL_ADDED, SETUP_SCRIPT_BEFORE_BOX, SPEC, THEIR_CLAUDE, THEIR_FILES, THEIR_SETTINGS,
+                   THEIR_SETTINGS_TEXT, WORKFLOWS, adopt, apply, checkpoint_lists, make_checkout, make_target,
+                   make_template, run_script, snapshot, track, unmet_imports, write)
 
 PLACEHOLDERS = tuple(P.values())
 BOARD = (".github/workflows/board.yml", "tools/board.py")
 NO_GIT = {rel: text for rel, text in THEIR_FILES.items() if not rel.startswith(".git/")}
+HELD_WITH_THE_LIBRARY = "`tools/VENDORED` is this repository's own, so the vendored library is not brought, and"
 
 
 class Scratch(unittest.TestCase):
@@ -116,8 +122,9 @@ class NewMode(Scratch):
         _, manifest, _ = apply(self.template, self.target, self.manifest)
         self.assertTrue(manifest["metrics_workflow"])
         self.assertTrue(manifest["metrics_breakdown"])
-        self.assertIn(".github/workflows/metrics.yml", manifest["added"])
-        self.assertIn("tools/metrics.py", manifest["added"])
+        for rel in METRICS:
+            self.assertIn(rel, manifest["added"])
+        self.assertEqual(unmet_imports(self.target, "tools/metrics.py", manifest["added"]), [])
 
     def test_a_script_from_before_the_breakdown_lands_without_it(self):
         make_template(self.template, metrics=True)
@@ -125,6 +132,32 @@ class NewMode(Scratch):
         _, manifest, _ = apply(self.template, self.target, self.manifest)
         self.assertTrue(manifest["metrics_workflow"])
         self.assertFalse(manifest["metrics_breakdown"])
+
+    def test_a_workflow_written_without_a_module_it_runs_is_not_at_work(self):
+        """Mode new holds no unit back: where a module the metrics script
+        imports cannot be written, the workflow lands without it, and the
+        manifest says it will not run."""
+        make_template(self.template, metrics=True)
+        write(self.target, "tools/usage.py/notes.md", "their folder\n")
+        code, manifest, err = apply(self.template, self.target, self.manifest)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.skipped(manifest)["tools/usage.py"], "a folder of yours stands where this file goes")
+        for rel in (".github/workflows/metrics.yml", "tools/metrics.py", "tools/economics.py"):
+            self.assertIn(rel, manifest["added"])
+        self.assertFalse(manifest["metrics_workflow"])
+        self.assertFalse(manifest["metrics_breakdown"])
+
+    def test_a_switch_that_cannot_be_written_is_read_as_off(self):
+        """Where a folder of theirs stands in the switch's place, the metrics
+        workflow still lands in mode new, and the template's script reads
+        what it cannot read as off, whatever the form said."""
+        make_template(self.template, metrics=True)
+        write(self.target, ".github/symphony-metrics/notes.md", "their notes\n")
+        code, manifest, err = apply(self.template, self.target, self.manifest, metrics="on")
+        self.assertEqual(code, 0, err)
+        self.assertIn(".github/symphony-metrics", self.skipped(manifest))
+        self.assertTrue(manifest["metrics_workflow"])
+        self.assertEqual(manifest["switch_reads"], "off")
 
     def test_a_setup_script_that_ticks_the_box_is_recorded(self):
         _, manifest, _ = apply(self.template, self.target, self.manifest)
@@ -288,9 +321,10 @@ class ExistingMode(Scratch):
         self.assertTrue(manifest["metrics_in_template"])
         # The template's script counts by setting, but it did not land.
         self.assertFalse(manifest["metrics_breakdown"])
-        self.assertFalse((self.target / "tools/metrics.py").exists())
+        for rel in ("tools/metrics.py", *METRICS_MODULES):
+            self.assertFalse((self.target / rel).exists(), rel)
+            self.assertIn(rel, self.skipped(manifest))
         self.assertIn(".github/workflows/metrics.yml", manifest["kept"])
-        self.assertIn("tools/metrics.py", self.skipped(manifest))
 
     def test_their_vendored_record_keeps_the_whole_library_out(self):
         write(self.target, "tools/VENDORED", "sdlc-protocol 0.0.0 their copy\n")
@@ -299,7 +333,179 @@ class ExistingMode(Scratch):
         self.assertFalse((self.target / "tools/sdlc_protocol").exists())
         for rel in LIBRARY[1:]:
             self.assertIn("`tools/VENDORED` is this repository's own", self.skipped(manifest)[rel])
-        self.assertIn("tools/board.py", manifest["added"])
+
+    def test_the_workflows_whose_scripts_import_the_library_stay_out_with_it(self):
+        make_template(self.template, metrics=True)
+        write(self.target, "tools/VENDORED", "sdlc-protocol 0.0.0 their copy\n")
+        manifest = self.adopt_existing()
+        skipped = self.skipped(manifest)
+        for rel in BOARD:
+            self.assertEqual(skipped.get(rel), HELD_WITH_THE_LIBRARY + " the board's workflow and its script need it")
+        # The metrics script reaches the library through two modules, the
+        # last importing it inside a function.
+        for rel in METRICS:
+            self.assertEqual(skipped.get(rel),
+                             HELD_WITH_THE_LIBRARY + " the metrics workflow and the scripts it runs need it")
+        self.assertFalse(manifest["metrics_workflow"])
+        for rel in (".github/workflows/tidy.yml", "docs/agents/PROTOCOL.md", "docs/agents/claims/README.md"):
+            self.assertIn(rel, manifest["added"])
+        self.assertIn("CLAUDE.md", manifest["merged"])
+
+    def test_the_metrics_workflow_brings_every_module_its_script_imports(self):
+        make_template(self.template, metrics=True)
+        manifest = self.adopt_existing()
+        self.assertTrue(manifest["metrics_workflow"])
+        self.assertEqual(set(manifest["added"]) - PROTOCOL_ADDED, set(METRICS))
+        self.assertFalse((self.target / adopt.INIT_SCRIPT).exists(), "a module the scripts do not import stays out")
+
+    def test_every_script_that_lands_imports_only_what_came_with_it(self):
+        """What would have shown that the metrics workflow came without the
+        modules its script imports: each workflow that lands runs a script
+        whose imports, and its modules' in turn, are met by the files that
+        landed with it, the library among them, and Python's own modules,
+        never by a file of theirs in a module of the template's place and
+        never by nothing. A file of theirs named like one of Python's own
+        modules is not caught, as the README says."""
+        make_template(self.template, metrics=True)
+        theirs = {"none": {}, "their board": {"tools/board.py": "theirs\n"},
+                  "their record": {"tools/VENDORED": "theirs\n"},
+                  **{f"their {rel}": {rel: "theirs\n"} for rel in METRICS_MODULES}}
+        for case, files in theirs.items():
+            for mode in ("existing", "new"):
+                with self.subTest(case=case, mode=mode):
+                    target = make_target(self.root / f"{case}-{mode}".replace(" ", "-").replace("/", "-"),
+                                         dict(THEIR_FILES, **files))
+                    code, manifest, err = apply(self.template, target, self.manifest, mode=mode)
+                    self.assertEqual(code, 0, err)
+                    landed = manifest["added"] + manifest["replaced"]
+                    for workflow, script in WORKFLOWS.items():
+                        if workflow in landed:
+                            self.assertEqual(unmet_imports(target, script, landed), [], workflow)
+
+    def test_the_workflows_scripts_run_where_they_landed(self):
+        make_template(self.template, metrics=True)
+        self.adopt_existing()
+        for script in ("tools/metrics.py", "tools/board.py"):
+            done = run_script(self.target, script)
+            self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(run_script(self.target, "tools/metrics.py").stdout, "metrics by_setting \n")
+
+    def test_a_module_of_theirs_keeps_the_metrics_workflow_out(self):
+        make_template(self.template, metrics=True)
+        for module in METRICS_MODULES:
+            with self.subTest(module=module):
+                target = make_target(self.root / module.replace("/", "-"), dict(THEIR_FILES, **{module: "theirs\n"}))
+                code, manifest, err = apply(self.template, target, self.manifest, mode="existing")
+                self.assertEqual(code, 0, err)
+                self.assertIn(module, manifest["kept"])
+                self.assertEqual((target / module).read_text(), "theirs\n")
+                skipped = self.skipped(manifest)
+                for rel in sorted(set(METRICS) - {module}):
+                    self.assertEqual(skipped.get(rel), f"`{module}` is this repository's own, and the metrics workflow"
+                                                       " and the scripts it runs are brought together or not at all")
+                    self.assertFalse((target / rel).exists(), rel)
+                self.assertFalse(manifest["metrics_workflow"])
+                self.assertIn("tools/board.py", manifest["added"])
+
+    def test_a_library_of_theirs_counts_only_when_it_is_the_templates(self):
+        """A copy that holds the template's bytes, from an earlier adoption
+        or copied by hand at the same release, lets the workflows come; one
+        that differs keeps them out, as a missing one does."""
+        make_template(self.template, metrics=True)
+        library = {rel: (self.template / rel).read_text() for rel in LIBRARY}
+        unlike = dict(library, **{"tools/sdlc_protocol/board.py": "def render():\n    pass\n"})
+        for case, files in (("like", library), ("unlike", unlike)):
+            with self.subTest(library=case):
+                target = make_target(self.root / case, dict(THEIR_FILES, **files))
+                code, manifest, err = apply(self.template, target, self.manifest, mode="existing")
+                self.assertEqual(code, 0, err)
+                self.assertTrue(set(LIBRARY) <= set(manifest["kept"]))
+                skipped = self.skipped(manifest)
+                if case == "like":
+                    self.assertTrue(set(BOARD) | set(METRICS) <= set(manifest["added"]), skipped)
+                    self.assertEqual(run_script(target, "tools/metrics.py").returncode, 0)
+                else:
+                    self.assertEqual(skipped.get("tools/board.py"),
+                                     "`tools/sdlc_protocol/board.py` is this repository's own, so the vendored library"
+                                     " is not brought, and the board's workflow and its script need it")
+                    self.assertTrue(set(METRICS) <= set(skipped))
+
+    def test_a_module_two_workflows_share_keeps_both_out_with_either(self):
+        make_template(self.template, metrics=True)
+        write(self.template, "tools/board.py", "import usage\n\nprint('the board', usage.counted())\n")
+        for theirs, shut in (("tools/board.py", (".github/workflows/metrics.yml", "tools/metrics.py")),
+                             ("tools/economics.py", (".github/workflows/board.yml",))):
+            with self.subTest(theirs=theirs):
+                target = make_target(self.root / theirs.replace("/", "-"), dict(THEIR_FILES, **{theirs: "theirs\n"}))
+                code, manifest, err = apply(self.template, target, self.manifest, mode="existing")
+                self.assertEqual(code, 0, err)
+                skipped = self.skipped(manifest)
+                self.assertIn(f"`{theirs}` is this repository's own", skipped.get("tools/usage.py", ""))
+                for rel in shut:
+                    self.assertIn("`tools/usage.py` stays out with another workflow", skipped.get(rel, ""))
+                for workflow in WORKFLOWS:
+                    self.assertNotIn(workflow, manifest["added"])
+
+    def test_a_package_the_script_imports_comes_whole(self):
+        make_template(self.template, metrics=True)
+        write(self.template, "tools/economics.py", "import prices\n\n\ndef priced():\n    return prices.TABLE\n")
+        write(self.template, "tools/prices/__init__.py", "from .table import TABLE\n")
+        write(self.template, "tools/prices/table.py", "TABLE = 'priced'\n")
+        manifest = self.adopt_existing()
+        self.assertTrue({"tools/prices/__init__.py", "tools/prices/table.py"} <= set(manifest["added"]))
+        self.assertNotIn("tools/usage.py", manifest["added"], "nothing imports it now")
+        self.assertEqual(run_script(self.target, "tools/metrics.py").stdout, "metrics by_setting priced\n")
+
+    def test_an_earlier_adoption_gains_the_modules_its_script_came_to_import(self):
+        """A tree adopted while the front door brought the metrics workflow
+        and its script alone holds the template's bytes of both; apply run
+        on it again gains the modules the script imports, and the workflow
+        runs. The run itself refuses a repository whose default branch
+        still holds the protocol's text (scripts/adopted.py), so apply meets
+        such a tree where that file has gone since."""
+        make_template(self.template, metrics=(".github/workflows/metrics.yml", "tools/metrics.py"))
+        first = self.adopt_existing()
+        self.assertEqual(set(first["added"]) & set(METRICS), {".github/workflows/metrics.yml", "tools/metrics.py"})
+        make_template(self.template, metrics=True)
+        manifest = self.adopt_existing()
+        self.assertEqual(sorted(set(manifest["added"]) & set(METRICS)), list(METRICS_MODULES))
+        self.assertTrue({".github/workflows/metrics.yml", "tools/metrics.py"} <= set(manifest["kept"]))
+        self.assertTrue(manifest["metrics_workflow"])
+        self.assertTrue(manifest["metrics_breakdown"])
+        self.assertEqual(run_script(self.target, "tools/metrics.py").returncode, 0)
+        again = self.adopt_existing()
+        self.assertEqual(again["added"], [])
+        self.assertTrue(again["metrics_workflow"])
+
+    def test_a_switch_that_cannot_be_written_keeps_the_metrics_workflow_out(self):
+        make_template(self.template, metrics=True)
+        write(self.target, ".github/symphony-metrics/notes.md", "their notes\n")
+        manifest = self.adopt_existing(metrics="off")
+        skipped = self.skipped(manifest)
+        self.assertEqual(skipped[".github/symphony-metrics"], "a folder of yours stands where this file goes")
+        for rel in METRICS:
+            self.assertEqual(skipped.get(rel), "`.github/symphony-metrics` cannot be written here, and the metrics"
+                                               " workflow and the scripts it runs come only with the metrics switch,"
+                                               " which says whether they share")
+            self.assertFalse((self.target / rel).exists(), rel)
+        self.assertFalse(manifest["metrics_workflow"])
+        self.assertIn(".github/workflows/board.yml", manifest["added"])
+
+    def test_the_manifest_says_what_the_workflow_will_read_in_the_switch(self):
+        """The form's word where the switch is written, and the repository's
+        own where it is kept, read as the template's script reads it: on only
+        when the first word is on."""
+        make_template(self.template, metrics=True)
+        cases = ((None, "off", "off"), (None, "on", "on"), ("on\n", "off", "on"), ("Off\n", "on", "off"),
+                 ("maybe\n", "on", "off"), (b"on \xff\n", "on", "off"))
+        for theirs, metrics, reads in cases:
+            with self.subTest(theirs=theirs, metrics=metrics):
+                (self.target / ".github/symphony-metrics").unlink(missing_ok=True)
+                if theirs is not None:
+                    write(self.target, ".github/symphony-metrics", theirs)
+                manifest = self.adopt_existing(metrics=metrics)
+                self.assertEqual(manifest["switch_reads"], reads)
+                self.assertTrue(manifest["metrics_workflow"])
 
     def test_a_kept_protocol_leaves_claude_md_alone(self):
         write(self.target, "docs/agents/PROTOCOL.md", "Agents must ask Bob before merging.\n")
@@ -452,28 +658,42 @@ class Ignored(Scratch):
         self.assertEqual(snapshot(self.target), before)
         self.assertFalse(self.manifest.exists())
 
-    def test_an_ignored_switch_holds_the_metrics_workflow_back(self):
-        """The template's script reads a missing switch as on, so a workflow
-        landed without it would share whatever the form said: the workflow
-        and its script stay out with the switch, and nothing is shared."""
+    def test_an_ignored_switch_keeps_the_metrics_workflow_out(self):
+        """The template's metrics script reads a missing switch as on, and an
+        ignored one is missing from every clone, so the workflow would share
+        where the form said off, and share whatever the form said: it comes
+        only with its switch, whichever word the form gave."""
         make_template(self.template, metrics=True)
         for metrics in ("off", "on"):
             with self.subTest(metrics=metrics):
                 shutil.rmtree(self.target, ignore_errors=True)
-                make_checkout(self.target, NO_GIT, "*-metrics\n")
+                make_checkout(self.target, NO_GIT, "*metrics\n")
                 code, manifest, err = apply(self.template, self.target, self.manifest, mode="existing",
                                             metrics=metrics)
                 self.assertEqual(code, 0, err)
                 skipped = self.skipped(manifest)
-                self.assertEqual(skipped[adopt.SWITCH], adopt.IGNORED_WHY)
-                for rel in adopt.METRICS_FILES:
-                    self.assertEqual(skipped[rel], "`.github/symphony-metrics` is ignored by this repository, and the"
-                                     " metrics workflow and its script come only with the metrics switch, which says"
-                                     " whether they share", rel)
+                self.assertEqual(skipped[".github/symphony-metrics"], adopt.IGNORED_WHY)
+                for rel in METRICS:
+                    self.assertEqual(skipped.get(rel), "`.github/symphony-metrics` is ignored by this repository, and"
+                                                       " the metrics workflow and the scripts it runs come only with"
+                                                       " the metrics switch, which says whether they share")
                     self.assertFalse((self.target / rel).exists(), rel)
                 self.assertFalse(manifest["metrics_workflow"])
                 self.assertEqual(manifest["switches"], {})
-                self.assertIn("docs/agents/PROTOCOL.md", manifest["added"])
+                self.assertIn(".github/workflows/board.yml", manifest["added"])
+
+    def test_a_metrics_workflow_there_already_reads_an_ignored_switch_as_on(self):
+        """Where the template's metrics workflow is there already, as an
+        earlier adoption left it, and the switch is ignored, nothing this
+        pull request writes changes what the workflow reads: no switch, so
+        on, whatever the form said; the manifest says so."""
+        make_template(self.template, metrics=True)
+        make_checkout(self.target, dict(NO_GIT, **METRICS), "*metrics\n")
+        code, manifest, err = apply(self.template, self.target, self.manifest, mode="existing", metrics="off")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(set(METRICS) <= set(manifest["kept"]))
+        self.assertTrue(manifest["metrics_workflow"])
+        self.assertEqual(manifest["switch_reads"], "on")
 
     def test_a_tracked_file_the_rules_match_is_still_merged(self):
         make_checkout(self.target, NO_GIT, "CLAUDE.md\n")
@@ -602,7 +822,7 @@ class OptOuts(Scratch):
                 self.assertEqual(self.switch(), "off\n")
                 self.assertEqual(self.switch(adopt.OLD_SWITCH), "off\n")
                 self.assertEqual(manifest["metrics"], "on")
-                self.assertEqual(manifest["sharing"], "off")
+                self.assertEqual(manifest["switch_reads"], "off")
                 self.assertEqual(manifest["switches"], {adopt.SWITCH: "off", adopt.OLD_SWITCH: "off"})
                 note, = self.held_notes(manifest)
                 self.assertIn(f"`{adopt.OLD_SWITCH}`, the switch under its name before the rename", note)
@@ -614,7 +834,7 @@ class OptOuts(Scratch):
             with self.subTest(text=text):
                 manifest = self.adoption(dict(NO_GIT, **{adopt.OLD_SWITCH: text}), "existing")
                 self.assertEqual(self.switch(), said + "\n")
-                self.assertEqual(manifest["sharing"], said)
+                self.assertEqual(manifest["switch_reads"], said)
                 self.assertEqual(len(self.held_notes(manifest)), 1 if said == "off" else 0)
 
     def test_the_whole_template_keeps_a_later_opt_out_off(self):
@@ -623,14 +843,14 @@ class OptOuts(Scratch):
         manifest = self.adoption({"README.md": "# widget\n", adopt.SWITCH: "off\n\nWe share nothing.\n"}, "new")
         self.assertIn(adopt.SWITCH, manifest["replaced"])
         self.assertEqual(self.switch(), "off\n")
-        self.assertEqual((manifest["sharing"], manifest["switches"]), ("off", {adopt.SWITCH: "off"}))
+        self.assertEqual((manifest["switch_reads"], manifest["switches"]), ("off", {adopt.SWITCH: "off"}))
         note, = self.held_notes(manifest)
         self.assertTrue(note.startswith(f"`{adopt.SWITCH}` said `off` before this request, so it still says `off`"))
 
     def test_a_kept_switch_that_says_off_is_what_the_manifest_shares(self):
         manifest = self.adoption(dict(NO_GIT, **{adopt.SWITCH: "off\n"}), "existing")
         self.assertIn(adopt.SWITCH, manifest["kept"])
-        self.assertEqual(manifest["sharing"], "off")
+        self.assertEqual(manifest["switch_reads"], "off")
         self.assertEqual(self.held_notes(manifest), [], "the kept switch has its own note")
 
     def test_a_switch_that_says_on_or_none_at_all_follows_the_form(self):
@@ -639,7 +859,7 @@ class OptOuts(Scratch):
                 with self.subTest(files=sorted(files), metrics=metrics, mode=mode):
                     manifest = self.adoption(files, mode, metrics)
                     self.assertEqual(self.switch(), metrics + "\n")
-                    self.assertEqual(manifest["sharing"], metrics)
+                    self.assertEqual(manifest["switch_reads"], metrics)
                     self.assertEqual(self.held_notes(manifest), [])
 
     def test_a_switch_that_cannot_be_read_here_reads_as_off(self):
@@ -664,13 +884,13 @@ class OptOuts(Scratch):
                     self.assertEqual(code, 0, err)
                     said = "on" if case == "a link inside" else "off"
                     self.assertEqual(self.switch(), said + "\n")
-                    self.assertEqual((manifest["sharing"], manifest["switches"][adopt.OLD_SWITCH]), (said, said))
+                    self.assertEqual((manifest["switch_reads"], manifest["switches"][adopt.OLD_SWITCH]), (said, said))
                     self.assertEqual(outside.read_text(), "on\n")
 
     def test_the_form_asking_off_needs_no_note(self):
         manifest = self.adoption(dict(NO_GIT, **{adopt.OLD_SWITCH: "off\n"}), "existing", metrics="off")
         self.assertEqual(self.switch(), "off\n")
-        self.assertEqual((manifest["metrics"], manifest["sharing"]), ("off", "off"))
+        self.assertEqual((manifest["metrics"], manifest["switch_reads"]), ("off", "off"))
         self.assertEqual(self.held_notes(manifest), [])
 
 
@@ -713,6 +933,30 @@ class Refusals(Scratch):
         code, _, err = apply(self.template, self.target, self.manifest, mode="existing")
         self.assertEqual(code, 1)
         self.assertIn("tools/VENDORED", err)
+
+    def test_a_script_that_does_not_parse_is_refused_without_a_word_of_it(self):
+        """Its imports say which files come with the workflow, so a script
+        that does not parse leaves nothing to go by; the line says which
+        file, since the log is public, and nothing of what it holds."""
+        make_template(self.template, metrics=True)
+        write(self.template, "tools/usage.py", "def counted(:\n    return 'the template's own line'\n")
+        for mode in ("existing", "new"):
+            with self.subTest(mode=mode):
+                code, _, err = apply(self.template, self.target, self.manifest, mode=mode)
+                self.assertEqual(code, 1)
+                self.assertEqual(err, "adopt: the template's tools/usage.py does not parse as Python\n")
+                self.assertEqual(snapshot(self.target), {"README.md": b"# widget\n"})
+
+    def test_a_warning_of_the_parser_never_reaches_the_log(self):
+        """The parser warns of an escape Python does not know, naming the
+        template's file and line, and with the file at hand printing the
+        line itself; the public log shows none of it, and the run goes on."""
+        make_template(self.template, metrics=True)
+        write(self.template, "tools/usage.py", "PATTERN = '\\d+'\n\n\ndef counted():\n    return PATTERN\n")
+        for mode in ("existing", "new"):
+            with self.subTest(mode=mode):
+                code, _, err = apply(self.template, self.target, self.manifest, mode=mode)
+                self.assertEqual((code, err), (0, ""))
 
     def test_a_spec_that_is_not_a_file(self):
         code, _, err = apply(self.template, self.target, self.manifest, mode="existing",
