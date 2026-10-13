@@ -11,13 +11,14 @@ same account, narrowed to the repositories the Setup App was given.
 
 Of the installation's repositories, those with no adoption yet (the
 sweep's own rules in sweep.py: a commit, no branch symphony/adopt, no
-docs/agents/PROTOCOL.md, no opt-out) that the issue's author administers
-are the ones to adopt, newest first, at most LIMIT of them: one, the
-newest, so that one press never reaches further than one repository (on
-2026-10-11 an installation on all of an account's repositories, with
-"Merge the pull request for me" ticked, merged the adoption into eight
-before the run was cancelled); the person presses Create again for the
-next, or names a repository on the form. With SETUP_JWT set, only a
+docs/agents/PROTOCOL.md, no opt-out; or no commit at all, an empty
+repository, whose first commit the run makes) that the issue's author
+administers are the ones to adopt, newest first, at most LIMIT of them:
+one, the newest, so that one press never reaches further than one
+repository (on 2026-10-11 an installation on all of an account's
+repositories, with "Merge the pull request for me" ticked, merged the
+adoption into eight before the run was cancelled); the person presses
+Create again for the next, or names a repository on the form. With SETUP_JWT set, only a
 repository the Setup App is installed on is a candidate, asked by id with
 that App's JWT before the newest is chosen: the Setup App's installation
 is the person's choice of repository and their consent to the settings it

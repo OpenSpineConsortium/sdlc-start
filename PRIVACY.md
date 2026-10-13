@@ -1,6 +1,6 @@
 # Symphony GitHub Apps privacy statement
 
-Version 5, 2026-10-13. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
+Version 6, 2026-10-13. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
 The Symphony browser extension has a statement of its own, at https://openspineconsortium.com/symphony/privacy.html.
 
 Who makes the Apps: Gregory Schwing, trading as OpenSpineConsortium ("the developer"). Questions:
@@ -54,7 +54,8 @@ repository's numeric id, the kind the run read (whether the repository was empty
 it added, replaced, kept or skipped, and the commit ids of your default branch and of the template.
 
 To do its work the run reads, from the repository being adopted: the default branch and the commit
-on it, whether a branch `symphony/adopt` exists and has a pull request, whether `docs/agents/PROTOCOL.md`
+on it or, where the default branch is not there yet, whether the repository has any branch at all,
+whether a branch `symphony/adopt` exists and has a pull request, whether `docs/agents/PROTOCOL.md`
 exists, the one word in `.github/symphony-adopt` and `.github/symphony-metrics` and in each under
 its name before the rename to Symphony, `.github/sdlc-adopt` and `.github/sdlc-metrics`, the full
 listing of the default branch's tree (to decide the kind), a checkout of that branch at depth one (to add the
@@ -67,7 +68,10 @@ sent elsewhere.
 
 What the run writes to your repository, as the App's bot: the board's labels, one commit on the
 branch `symphony/adopt`, one pull request from it, and, in a repository that held nothing yet, the
-issue "Set up this project". The pull request's body lists every file it brings, names the GitHub
+issue "Set up this project". In a repository with no commit at all, which you asked for on the form,
+the run also makes its first commit, on the default branch, which holds no file, since a pull
+request needs a branch to go into; it goes in one atomic push with `symphony/adopt`, so GitHub takes
+the two together or neither. The pull request's body lists every file it brings, names the GitHub
 login of the person who asked (or, from the sweep, the administrator it found), says whether the
 repository is private and, where the Setup App was installed, quotes GitHub's own answer for each
 setting, which may name your account's plan; in an organization's new repository, the pull request
@@ -80,8 +84,8 @@ that takes the whole template, ticks "Allow GitHub Actions to create and approve
 your organization and its enterprise allow it, then revokes the Setup App's token and uninstalls
 the Setup App when the repository was its only one. Unless you chose on the form to review the pull request
 first, the run merges it or arms auto-merge. Everything else lands only
-when you merge. Closing the pull request instead leaves the labels, the branch, the settings, the
-topic and the issue for you to undo. When the run could not open its pull request and nobody was on
+when you merge. Closing the pull request instead leaves the labels, the branch, the first commit the
+run made in a repository that had none, the settings, the topic and the issue for you to undo. When the run could not open its pull request and nobody was on
 the form to tell, the App opens one issue in your repository saying why.
 
 The adoption's files come from the developer's private template repository, read with a token that
@@ -96,7 +100,9 @@ request needs, the repositories it reaches, and reads from each what the adoptio
 whether to offer one: the default branch, the branches `symphony/adopt` and `sdlc/adopt`,
 `docs/agents/PROTOCOL.md`, `.github/symphony-adopt` and `.github/sdlc-adopt`, closed pull requests
 from `symphony/adopt`, and the App's own open issues. The sweep writes nothing itself; it starts the
-adoption run above, by ids only, for a repository with no adoption yet. A repository that was
+adoption run above, by ids only, for a repository with no adoption yet. A repository with no commit
+at all is left alone until it has one, since whoever made it empty may be about to push a history of
+their own. A repository that was
 adopted, declined once (its pull request from `symphony/adopt` closed without a merge) or opted out
 (`off` in `.github/symphony-adopt`) is passed over, but it is still read every ten minutes to learn
 that; only uninstalling the App stops the reading. The sweep's own public log carries counts and
@@ -263,6 +269,12 @@ Symphony is for people who administer GitHub repositories. It is not directed at
 A new version of this statement is published at https://openspineconsortium.com/symphony/apps-privacy.html
 and in the front door repository, github.com/OpenSpineConsortium/symphony-start, whose PRIVACY.md is
 this text.
+
+Version 6 says that the run, asked on the form for a repository with no commit yet, makes its
+first commit, which holds no file, on the default branch, in one atomic push with the branch
+`symphony/adopt`, and that closing the pull request leaves that commit too; that the run reads whether
+such a repository has any branch at all, to tell an empty one; and that the sweep leaves a
+repository with no commit alone until it has one. Nothing the developer receives or keeps changed.
 
 Version 5 says that the run also reads the two switches under their names before the rename to
 Symphony, `.github/sdlc-adopt` and `.github/sdlc-metrics`; that an adoption never turns on a switch

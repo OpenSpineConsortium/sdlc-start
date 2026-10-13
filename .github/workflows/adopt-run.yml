@@ -36,7 +36,10 @@ name: Adopt (run)
 # out of this public log, the Setup App's token is minted after the push
 # and revoked right after the settings, and two requests for one
 # repository are settled by the push of symphony/adopt, which only one of
-# them can make. A repository adopted already is refused on every path
+# them can make. A repository with no commit yet, asked for on the form,
+# gets its first commit from the run, which holds no file, in one atomic
+# push with symphony/adopt; the sweep leaves such a repository alone until
+# it has a commit. A repository adopted already is refused on every path
 # before anything is staged, by the sweep's own rule (scripts/adopted.py
 # asks sweep.is_adopted), since a name typed on the form meets neither
 # the sweep's checks nor the installation's, and a second adoption would
@@ -261,9 +264,40 @@ jobs:
             echo "::add-mask::$requester"
             echo "REQUESTER=$requester" >> "$GITHUB_ENV"
           fi
+          # A repository with no commit names a default branch and has none.
+          # Asked for on the form, by its name or chosen for the Setup App
+          # from the install, it is adopted all the same: the run makes its
+          # first commit, which holds no file, and pushes it with the branch
+          # symphony/adopt in one atomic push, so neither lands without the
+          # other (the commit step). The sweep's path makes no such commit:
+          # the sweep leaves an empty repository alone (scripts/sweep.py, no
+          # commit), since whoever made it empty may be about to push a
+          # history of their own, which a commit of the App's would turn
+          # away. A default branch missing beside branches of the
+          # repository's own is no empty repository, and is refused. GitHub
+          # answers an empty repository's list of branches with none or with
+          # 409, "Git Repository is empty", and either is read as empty.
+          empty=false
           if ! gh api "repos/$TARGET/branches/$encoded" --silent 2>/dev/null; then
-            bash start/scripts/refuse.sh "Nothing was done: $SAID has no commit yet, and a pull request needs a branch to go into. Add a first commit (a README is enough), then open a new request with the form; this one is closed."
-            exit 0
+            if ! branches="$(gh api "repos/$TARGET/branches?per_page=1" --jq length 2> "$RUNNER_TEMP/branches-said")"; then
+              if grep -q "(HTTP 409)" "$RUNNER_TEMP/branches-said"; then
+                branches=0
+              else
+                echo "whether the repository has any branch could not be read"
+                exit 1
+              fi
+            fi
+            if [ "$branches" != 0 ]; then
+              bash start/scripts/refuse.sh "Nothing was done: $SAID has branches, but none by the name its settings give as the default branch, so a pull request has no branch to go into. Choose one of its branches as the default branch (Settings, General, Default branch), then open a new request with the form; this one is closed."
+              exit 0
+            fi
+            if [ "$SOURCE" != issue ]; then
+              bash start/scripts/refuse.sh "Nothing was done: $SAID has no commit yet, and a pull request needs a branch to go into. A request on the form makes that first commit itself, or push one of your own; this one is closed."
+              exit 0
+            fi
+            empty=true
+            echo "EMPTY=true" >> "$GITHUB_ENV"
+            echo "the repository has no commit yet: its first, with no file in it, goes with the branch symphony/adopt"
           fi
           # Adopted already, by the sweep's own rule (docs/agents/PROTOCOL.md
           # on the default branch, asked through sweep.is_adopted): the sweep
@@ -284,9 +318,13 @@ jobs:
           # symphony/adopt, so a merged adoption that kept its branch is
           # told that it is adopted rather than sent to delete the branch
           # and ask again. A refusal here is one the sweep would have made
-          # itself, so on its path nothing is told to the repository.
+          # itself, so on its path nothing is told to the repository. An
+          # empty repository holds no file and no branch, so neither this
+          # question nor the next is asked of it.
           adopted=0
-          python3 start/scripts/adopted.py "$TARGET" 2> "$RUNNER_TEMP/adopted-said" || adopted=$?
+          if [ "$empty" != true ]; then
+            python3 start/scripts/adopted.py "$TARGET" 2> "$RUNNER_TEMP/adopted-said" || adopted=$?
+          fi
           case "$adopted" in
             0) ;;
             3) echo "ADOPTED=true" >> "$GITHUB_ENV"
@@ -295,7 +333,10 @@ jobs:
             *) echo "whether the repository is adopted already could not be read: $(head -n 1 "$RUNNER_TEMP/adopted-said")"
                exit 1 ;;
           esac
-          taken="$(for b in symphony/adopt sdlc/adopt; do gh api "repos/$TARGET/git/matching-refs/heads/$b" --jq "[.[] | select(.ref == \"refs/heads/$b\")] | length" 2>/dev/null || echo 0; done | awk '{s+=$1} END {print s+0}')"
+          taken=0
+          if [ "$empty" != true ]; then
+            taken="$(for b in symphony/adopt sdlc/adopt; do gh api "repos/$TARGET/git/matching-refs/heads/$b" --jq "[.[] | select(.ref == \"refs/heads/$b\")] | length" 2>/dev/null || echo 0; done | awk '{s+=$1} END {print s+0}')"
+          fi
           if [ "$taken" != 0 ]; then
             open="$(for b in symphony/adopt sdlc/adopt; do gh api "repos/$TARGET/pulls?state=open&head=$OWNER:$b" --jq 'length' 2>/dev/null || echo 0; done | awk '{s+=$1} END {print s+0}')"
             if [ "$open" != 0 ]; then
@@ -307,10 +348,16 @@ jobs:
           # The form may leave the kind to the run: read from the tree as
           # the sweep reads it, with the same rule (scripts/sweep.py); a
           # tree that cannot be read is an existing repository, which
-          # overwrites nothing.
+          # overwrites nothing. An empty repository's tree, which GitHub
+          # cannot list before its first commit, is the empty tree, and so
+          # new.
           mode="$MODE_GIVEN"
           if [ "$mode" = read ]; then
-            gh api "repos/$TARGET/git/trees/$encoded?recursive=1" > "$RUNNER_TEMP/tree.json" 2>/dev/null || echo '{}' > "$RUNNER_TEMP/tree.json"
+            if [ "$empty" = true ]; then
+              echo '{"tree": [], "truncated": false}' > "$RUNNER_TEMP/tree.json"
+            else
+              gh api "repos/$TARGET/git/trees/$encoded?recursive=1" > "$RUNNER_TEMP/tree.json" 2>/dev/null || echo '{}' > "$RUNNER_TEMP/tree.json"
+            fi
             mode="$(python3 -c 'import json, sys; sys.path.insert(0, "start/scripts"); import sweep; print(sweep.classify_tree(json.load(open(sys.argv[1]))))' "$RUNNER_TEMP/tree.json")"
             echo "KIND_READ=true" >> "$GITHUB_ENV"
             echo "the kind was read from the tree: $mode"
@@ -369,9 +416,9 @@ jobs:
       # The ref stays qualified: given a bare name such as main, checkout
       # fetches, and prints, every branch and tag of the repository whose
       # name starts with it; given refs/heads/<name> it fetches that one
-      # branch.
+      # branch. An empty repository has none to check out (the next step).
       - uses: actions/checkout@v7
-        if: env.REFUSED != 'true'
+        if: env.REFUSED != 'true' && env.EMPTY != 'true'
         with:
           repository: ${{ env.TARGET }}
           ref: refs/heads/${{ steps.target.outputs.default_branch }}
@@ -379,6 +426,24 @@ jobs:
           path: target
           persist-credentials: false
           show-progress: false
+
+      # An empty repository's history begins here instead, in the folder
+      # the checkout would have made, with the remote the push names and
+      # the default branch its settings give, which its first commit makes
+      # real; that commit is the commit step's, made as the App. git's
+      # messages stay out of this public log.
+      - name: Begin the history of an empty repository
+        if: env.REFUSED != 'true' && env.EMPTY == 'true'
+        env:
+          TARGET: ${{ env.TARGET }}
+          DEFAULT_BRANCH: ${{ steps.target.outputs.default_branch }}
+        run: |
+          if ! git init --quiet --initial-branch "$DEFAULT_BRANCH" target > /dev/null 2>> "$RUNNER_TEMP/git-said"; then
+            echo "git init failed; its message is kept out of this public log"
+            exit 1
+          fi
+          git -C target remote add origin "https://github.com/$TARGET"
+          echo "the repository's history begins in this run"
 
       - name: Stage the adoption and write the pull request's title
         if: env.REFUSED != 'true'
@@ -426,6 +491,7 @@ jobs:
           GH_TOKEN: ${{ steps.target-token.outputs.token }}
           SLUG: ${{ steps.target-token.outputs.app-slug }}
           TARGET: ${{ env.TARGET }}
+          DEFAULT_BRANCH: ${{ steps.target.outputs.default_branch }}
           ISSUE_TOKEN: ${{ github.token }}
         run: |
           bot="${SLUG}[bot]"
@@ -435,6 +501,19 @@ jobs:
           cd target
           git config user.name "$bot"
           git config user.email "${bot_id}+${bot}@users.noreply.github.com"
+          # An empty repository's first commit, on its default branch: the
+          # App's, and with no file, since nothing has been added to the
+          # index yet, so that the template's files come only with the pull
+          # request, which goes into it.
+          if [ "${EMPTY:-}" = true ]; then
+            printf '%s\n\n%s\n' "Begin this repository's history" \
+              "Made by the Symphony App at the request of an administrator of this repository, which had no commit yet: the adoption's pull request needs a branch to go into. It holds no file." \
+              > "$RUNNER_TEMP/first-message"
+            if ! git commit --quiet --allow-empty --file "$RUNNER_TEMP/first-message" > /dev/null 2>> "$said"; then
+              echo "git commit failed; its message is kept out of this public log"
+              exit 1
+            fi
+          fi
           git switch --quiet -c symphony/adopt
           # --force: a file the adoption wrote goes in even where the
           # repository's .gitignore would leave it out, so the pull request
@@ -459,7 +538,18 @@ jobs:
           fi
           basic="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           echo "::add-mask::$basic"
-          if git -c http.extraheader="AUTHORIZATION: basic $basic" push --quiet origin HEAD:refs/heads/symphony/adopt > /dev/null 2>> "$said"; then
+          # An empty repository takes its first commit and symphony/adopt in
+          # one atomic push, which GitHub takes whole or not at all: a
+          # refused push leaves it as empty as it was, and a commit pushed
+          # there by anyone else meanwhile stands, since a commit with no
+          # parent never fast-forwards a branch.
+          atomic=()
+          refs=(HEAD:refs/heads/symphony/adopt)
+          if [ "${EMPTY:-}" = true ]; then
+            atomic=(--atomic)
+            refs=("refs/heads/$DEFAULT_BRANCH:refs/heads/$DEFAULT_BRANCH" "${refs[@]}")
+          fi
+          if git -c http.extraheader="AUTHORIZATION: basic $basic" push --quiet "${atomic[@]}" origin "${refs[@]}" > /dev/null 2>> "$said"; then
             echo "PUSHED=true" >> "$GITHUB_ENV"
           else
             # Two requests for one repository at once: the first push made
@@ -467,6 +557,8 @@ jobs:
             taken="$(for b in symphony/adopt sdlc/adopt; do gh api "repos/$TARGET/git/matching-refs/heads/$b" --jq "[.[] | select(.ref == \"refs/heads/$b\")] | length" 2>/dev/null || echo 0; done | awk '{s+=$1} END {print s+0}')"
             if [ "$taken" != 0 ]; then
               bash "$refuse" "Nothing was done: another request for $SAID pushed the branch symphony/adopt while this one ran, and its pull request is the one to review${PULLS_LINK:+ ($PULLS_LINK)}; this issue is closed."
+            elif [ "${EMPTY:-}" = true ] && [ "$(gh api "repos/$TARGET/branches?per_page=1" --jq length 2>/dev/null || echo 0)" != 0 ]; then
+              bash "$refuse" "Nothing was done: $SAID got a first commit of its own while this run was beginning its history, so the run left that history as it is. Open a new request with the form, which adopts the repository as it is now; this one is closed."
             else
               bash "$refuse" "Nothing was done: GitHub refused the push of the branch symphony/adopt to $SAID; a ruleset or a branch protection there may stand in its way. Let the App push that branch, then open a new request with the form; this one is closed."
             fi

@@ -185,12 +185,21 @@ FAKE_GH = """#!/usr/bin/env python3
 # gh, answered as GitHub would answer the step for a repository with a
 # commit on main, no branch symphony/adopt and a README alone; every call
 # is kept, and issue writes are only kept, except that a close marks the
-# issue closed in the file ISSUE_STATE names, which a view reads.
+# issue closed in the file ISSUE_STATE names, which a view reads. BRANCHES
+# makes it another repository: none, one with no branch at all; 409, the
+# same as GitHub may answer for one, "Git Repository is empty"; others,
+# one with branches but none by the default branch's name; unreadable, one
+# whose list of branches GitHub fails to give.
 import json, os, sys
 argv = sys.argv[1:]
 with open(os.environ["GH_LOG"], "a", encoding="utf-8") as log:
     log.write(json.dumps(argv) + "\\n")
 state = os.environ.get("ISSUE_STATE", "")
+branches = os.environ.get("BRANCHES", "")
+def refuse(status):
+    words = {"404": "Branch not found", "409": "Git Repository is empty.", "500": "Server Error"}[status]
+    sys.stderr.write("gh: " + words + " (HTTP " + status + ")\\n")
+    sys.exit(1)
 if argv[:2] == ["issue", "view"]:
     print(open(state, encoding="utf-8").read().strip() if state and os.path.exists(state) else "OPEN")
 elif argv[:2] == ["issue", "close"] and state:
@@ -207,7 +216,14 @@ elif argv[:1] == ["api"]:
         print("0")
     elif "/git/trees/" in path:
         print(json.dumps({"tree": [{"path": "README.md", "type": "blob"}], "truncated": False}))
-    elif "/branches/" not in path:
+    elif "/branches?" in path:
+        if branches in ("409", "unreadable"):
+            refuse("409" if branches == "409" else "500")
+        print("0" if branches == "none" else "1")
+    elif "/branches/" in path:
+        if branches:
+            refuse("409" if branches == "409" else "404")
+    else:
         sys.exit(1)
 """
 
@@ -259,7 +275,7 @@ class TheRunsCheck(unittest.TestCase):
         environ = {
             "PATH": f"{self.root / 'bin'}:{os.environ.get('PATH', '/usr/bin:/bin')}",
             "GH_LOG": str(runner / "gh.log"), "ANSWER_STATUS": str(status),
-            "TOKEN_OUTCOME": "success", "GH_TOKEN": TOKEN, "ISSUE_TOKEN": "issue-token", "ISSUE": "7",
+            "TOKEN_OUTCOME": "success", "GH_TOKEN": TOKEN, "ISSUE_TOKEN": "issue-token", "ISSUE": "7", "SOURCE": "issue",
             "GITHUB_REPOSITORY": "OpenSpineConsortium/symphony-start", "TARGET": REPOSITORY, "OWNER": OWNER,
             "MODE_GIVEN": "read", "NAMED": "public", "REQUESTER": OWNER, "KIND_READ": "false", "SAID": REPOSITORY,
             "PULLS_LINK": f"https://github.com/{REPOSITORY}/pulls",

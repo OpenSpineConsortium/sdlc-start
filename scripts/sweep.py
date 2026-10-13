@@ -42,7 +42,11 @@ A repository is left out, each reason counted, when
               gh issue list --json body writes them), so the form's run
               has it;
   no commit   its default branch is not there yet, so there is nothing to
-              branch from; the README says a README is enough;
+              branch from, and whoever made it empty may be about to push
+              a history of their own, which a first commit of the App's
+              would turn away: the sweep waits for one, while the form's
+              run makes it for a repository the person named or chose for
+              the Setup App (unadopted);
   offered     the branch symphony/adopt is there: an adoption was offered, and
               its pull request is open, merged, or closed on purpose;
   adopted     docs/agents/PROTOCOL.md is on its default branch, by the form
@@ -154,6 +158,9 @@ REFUSED = "refused"
 UNREADABLE = "unreadable"
 NEW = "new"
 EXISTING = "existing"
+# The status of some of GitHub's answers about a repository with no
+# commit: "Git Repository is empty".
+EMPTY_STATUS = 409
 LINK = re.compile(r'<([^>]+)>;\s*rel="([^"]+)"')
 
 
@@ -411,13 +418,19 @@ def repo_path(repository):
 
 
 def unadopted(github, repositories):
-    """The repositories among these that have a commit and no adoption yet:
-    no branch symphony/adopt, no docs/agents/PROTOCOL.md, no opt-out. The
-    form's workflow asks this of an installation that reaches several,
-    to find the one the person meant; a GitHubError is the caller's."""
+    """The repositories among these with no adoption yet: those with a
+    commit and no branch symphony/adopt, no docs/agents/PROTOCOL.md and no
+    opt-out, and those with no commit at all, whose first commit the form's
+    run makes (the sweep leaves those alone, NO_COMMIT). The form's
+    workflow asks this of an installation that reaches several, to find
+    the one the person meant; a GitHubError is the caller's."""
     free = []
     for repository in repositories:
-        if repository.get("archived") or not has_commit(github, repository):
+        if repository.get("archived"):
+            continue
+        if not has_commit(github, repository):
+            if is_empty(github, repository):
+                free.append(repository)
             continue
         if has_adopt_branch(github, repository) or is_adopted(github, repository) or opted_out(github, repository):
             continue
@@ -458,8 +471,28 @@ def branch_path(repository):
 
 def has_commit(github, repository):
     """A repository with no commit has a default branch in name only: the
-    branch itself answers 404."""
-    return found(github, f"{repo_path(repository)}/branches/{branch_path(repository)}")
+    branch itself answers 404, or 409 where GitHub says the repository is
+    empty."""
+    try:
+        return found(github, f"{repo_path(repository)}/branches/{branch_path(repository)}")
+    except GitHubError as refusal:
+        if refusal.status == EMPTY_STATUS:
+            return False
+        raise
+
+
+def is_empty(github, repository):
+    """Whether the repository has no branch at all, so no commit: an empty
+    one, which the form's run begins, as against a default branch missing
+    beside branches of the repository's own, which it refuses. GitHub
+    answers an empty repository's list with none or with 409, "Git
+    Repository is empty"; both say so."""
+    try:
+        return not github.listed(f"{repo_path(repository)}/branches?per_page=1")
+    except GitHubError as refusal:
+        if refusal.status == EMPTY_STATUS:
+            return True
+        raise
 
 
 def has_adopt_branch(github, repository):
