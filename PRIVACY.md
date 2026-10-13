@@ -1,6 +1,6 @@
 # Symphony GitHub Apps privacy statement
 
-Version 5, 2026-10-13. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
+Version 6, 2026-10-13. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
 The Symphony browser extension has a statement of its own, at https://openspineconsortium.com/symphony/privacy.html.
 
 Who makes the Apps: Gregory Schwing, trading as OpenSpineConsortium ("the developer"). Questions:
@@ -21,7 +21,8 @@ The unit of consent is the installation. Whatever repositories you give an App w
 every one of them, and this statement applies to each.
 
 SymphonyBoard asks for six repository permissions: Contents (read and write), to read your default
-branch and push the branch `symphony/adopt`; Pull requests (read and write), to open the adoption
+branch and push the branch `symphony/adopt` and, in a repository with no commit yet, to make its first
+commit, a README; Pull requests (read and write), to open the adoption
 pull request and, only when you asked for it on the form, merge it; Issues (read and write), to
 make the board's labels and, in a new repository, open the issue "Set up this project"; Checks (read
 and write), to post the protocol check as a check run where the developer runs the App's server;
@@ -54,20 +55,25 @@ repository's numeric id, the kind the run read (whether the repository was empty
 it added, replaced, kept or skipped, and the commit ids of your default branch and of the template.
 
 To do its work the run reads, from the repository being adopted: the default branch and the commit
-on it, whether a branch `symphony/adopt` exists and has a pull request, whether `docs/agents/PROTOCOL.md`
+on it or, where the default branch is not there yet, whether the repository has any branch at all,
+whether a branch `symphony/adopt` exists and has a pull request, whether `docs/agents/PROTOCOL.md`
 exists, the one word in `.github/symphony-adopt` and `.github/symphony-metrics` and in each under
 its name before the rename to Symphony, `.github/sdlc-adopt` and `.github/sdlc-metrics`, the full
 listing of the default branch's tree (to decide the kind), a checkout of that branch at depth one (to add the
 files), whether you administer the repository and, when the request came from the sweep below
 rather than from you, the repository's direct collaborators and their permissions, to find an
 administrator. With Symphony Setup installed, the run also reads the repository's rulesets, its
-topics and its workflow permissions for GitHub Actions, to leave what is there as it is. Everything
+topics and its workflow permissions for GitHub Actions, to leave what is there as it is. When the
+form carries an installation's number and no name, the run asks the same of each repository both Apps
+reach, and whether you administer it, to choose the newest one with no adoption yet. Everything
 read lives on GitHub's runner for the length of the run and goes with it; nothing of it is kept or
 sent elsewhere.
 
 What the run writes to your repository, as the App's bot: the board's labels, one commit on the
 branch `symphony/adopt`, one pull request from it, and, in a repository that held nothing yet, the
-issue "Set up this project". The pull request's body lists every file it brings, names the GitHub
+issue "Set up this project". In a repository with no commit at all, the run first makes one, as
+GitHub's own "Add a README file" does: a `README.md` holding the repository's name, on the default
+branch, which the pull request goes into; the whole template's README takes its place when you merge. The pull request's body lists every file it brings, names the GitHub
 login of the person who asked (or, from the sweep, the administrator it found), says whether the
 repository is private and, where the Setup App was installed, quotes GitHub's own answer for each
 setting, which may name your account's plan; in an organization's new repository, the pull request
@@ -80,8 +86,8 @@ that takes the whole template, ticks "Allow GitHub Actions to create and approve
 your organization and its enterprise allow it, then revokes the Setup App's token and uninstalls
 the Setup App when the repository was its only one. Unless you chose on the form to review the pull request
 first, the run merges it or arms auto-merge. Everything else lands only
-when you merge. Closing the pull request instead leaves the labels, the branch, the settings, the
-topic and the issue for you to undo. When the run could not open its pull request and nobody was on
+when you merge. Closing the pull request instead leaves the labels, the README the run made in a
+repository that had no commit, the branch, the settings, the topic and the issue for you to undo. When the run could not open its pull request and nobody was on
 the form to tell, the App opens one issue in your repository saying why.
 
 The adoption's files come from the developer's private template repository, read with a token that
@@ -243,8 +249,8 @@ and no third party. SymphonyBoard never holds Administration on anyone's reposit
 holds it for one run and only where you installed it. They read your repository's code only as the
 adoption above says (the tree listing, a one-commit checkout of the default branch, and the few
 files named), never to keep or send it. They never write to a repository but the adoption's branch,
-pull request, labels, issue and settings, each of them yours to undo, and the one issue that says a
-pull request could not be opened. They never read a Claude credential, and nothing here runs on
+pull request, labels, issue and settings, each of them yours to undo, the README that begins a
+repository with no commit, and the one issue that says a pull request could not be opened. They never read a Claude credential, and nothing here runs on
 anyone's Claude account but the one a project's own maintainer chooses to run the judge with.
 
 ## Uninstalling
@@ -263,6 +269,13 @@ Symphony is for people who administer GitHub repositories. It is not directed at
 A new version of this statement is published at https://openspineconsortium.com/symphony/apps-privacy.html
 and in the front door repository, github.com/OpenSpineConsortium/symphony-start, whose PRIVACY.md is
 this text.
+
+Version 6 says that the run, asked for a repository with no commit yet, first makes its first
+commit, as GitHub's own "Add a README file" does: a `README.md` holding the repository's name, on the
+default branch, which Contents write allows; that it reads whether such a repository has any branch
+at all; that closing the pull request leaves that README; and, as it did already, that when the form
+carries an installation's number the run asks of each repository both Apps reach what it asks of the
+one it adopts. Nothing the developer receives or keeps changed.
 
 Version 5 says that the run also reads the two switches under their names before the rename to
 Symphony, `.github/sdlc-adopt` and `.github/sdlc-metrics`; that an adoption never turns on a switch

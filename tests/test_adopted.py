@@ -185,12 +185,30 @@ FAKE_GH = """#!/usr/bin/env python3
 # gh, answered as GitHub would answer the step for a repository with a
 # commit on main, no branch symphony/adopt and a README alone; every call
 # is kept, and issue writes are only kept, except that a close marks the
-# issue closed in the file ISSUE_STATE names, which a view reads.
+# issue closed in the file ISSUE_STATE names, which a view reads. BRANCHES
+# makes it another repository: none, one with no branch at all, or 409,
+# the same answered as GitHub may answer for one, "Git Repository is
+# empty", either of which the contents call for README.md begins, its
+# branch there from then on (README: ok; refused, as a ruleset refuses;
+# raced, refused because someone else's first commit got there first);
+# others, one with branches but none by the default branch's name;
+# unreadable, one whose list of branches GitHub fails to give; flaky, one
+# whose default branch GitHub fails to answer for. An error's body goes to
+# stdout and its line to stderr, as gh writes them.
 import json, os, sys
 argv = sys.argv[1:]
 with open(os.environ["GH_LOG"], "a", encoding="utf-8") as log:
     log.write(json.dumps(argv) + "\\n")
 state = os.environ.get("ISSUE_STATE", "")
+branches = os.environ.get("BRANCHES", "")
+begun = os.path.join(os.environ.get("RUNNER_TEMP", "."), "begun")
+def refuse(status):
+    words = {"404": "Branch not found", "409": "Git Repository is empty.", "422": "Invalid request.",
+             "500": "Server Error", "502": "Server Error"}[status]
+    if "--silent" not in argv:
+        print(json.dumps({"message": words, "status": status}))
+    sys.stderr.write("gh: " + words + " (HTTP " + status + ")\\n")
+    sys.exit(1)
 if argv[:2] == ["issue", "view"]:
     print(open(state, encoding="utf-8").read().strip() if state and os.path.exists(state) else "OPEN")
 elif argv[:2] == ["issue", "close"] and state:
@@ -198,16 +216,33 @@ elif argv[:2] == ["issue", "close"] and state:
 elif argv[:1] == ["api"]:
     path = argv[1]
     asked = argv[argv.index("--jq") + 1] if "--jq" in argv else ""
+    method = argv[argv.index("--method") + 1] if "--method" in argv else "GET"
+    there = not branches or os.path.exists(begun)
     if path == "repos/" + os.environ["TARGET"] and asked in (".owner.id", ".id"):
         print("583231" if asked == ".owner.id" else "1296269")
     elif path == "repos/" + os.environ["TARGET"]:
         print("default_branch=main")
         print("owner_type=User")
+    elif method == "PUT" and path.endswith("/contents/README.md"):
+        outcome = os.environ.get("README", "ok")
+        if outcome in ("ok", "raced"):
+            open(begun, "w").close()
+        if outcome != "ok":
+            refuse("422" if outcome == "raced" else "409")
     elif "/git/matching-refs/" in path or "/pulls?" in path:
         print("0")
     elif "/git/trees/" in path:
         print(json.dumps({"tree": [{"path": "README.md", "type": "blob"}], "truncated": False}))
-    elif "/branches/" not in path:
+    elif "/branches?" in path:
+        if not there and branches in ("409", "unreadable"):
+            refuse("409" if branches == "409" else "500")
+        print("0" if not there and branches == "none" else "1")
+    elif "/branches/" in path:
+        if branches == "flaky":
+            refuse("502")
+        if not there:
+            refuse("409" if branches == "409" else "404")
+    else:
         sys.exit(1)
 """
 

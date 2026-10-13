@@ -114,6 +114,32 @@ class Resolving(unittest.TestCase):
         self.assertFalse([path for _, _, path in transport.calls if "/repos/" in path])
         self.assertIn(("token-app-70", "DELETE", "/installation/token"), transport.calls)
 
+    def test_an_empty_repository_is_one_to_adopt(self):
+        """A repository with no commit yet, the newest the Setup App was
+        given, is the one to adopt, since the run makes its first commit;
+        nothing is asked of it but whether it has a branch. One whose
+        default branch is missing beside branches of its own is none."""
+        empty = repository(4, "empty", created="2026-10-13T12:00:00Z")
+        stray = repository(5, "stray", created="2026-10-13T13:00:00Z")
+        token = "token-app-70"
+        answers = {
+            (token, "GET", "/repositories/4/branches/main"): NOT_FOUND,
+            (token, "GET", "/repositories/4/branches?per_page=1"): (200, []),
+            (token, "GET", "/repositories/5/branches/main"): NOT_FOUND,
+            (token, "GET", "/repositories/5/branches?per_page=1"): (200, [{"name": "draft"}]),
+        }
+        transport = Transport(answers, repositories=(FREE, OLDER, ADOPTED, empty, stray),
+                              permissions={1: "admin", 2: "admin", 3: "admin", 4: "admin", 5: "admin"})
+        code, written, out, err = self.run_resolve(transport)
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(written, "installation_id=70\nrepository_ids=[4]\ncount=1\n")
+        asked = [path for _, _, path in transport.calls if path.startswith("/repositories/4/")]
+        self.assertIn("/repositories/4/branches?per_page=1", asked)
+        self.assertFalse([path for path in asked if "/git/" in path or "/contents/" in path], asked)
+        # Chosen for the Setup App or not at all: the filter holds for it too.
+        self.assertEqual(self.run_resolve(Transport(answers, repositories=(empty,), permissions={4: "admin"},
+                                                    setup_on=[]))[0], resolve.NOTHING)
+
     def test_only_a_repository_the_setup_app_is_installed_on(self):
         """The Setup App's installation is the person's choice of repository
         and their consent to the settings: an account with the App on all

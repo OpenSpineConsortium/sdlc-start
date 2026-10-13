@@ -253,22 +253,43 @@ class Sweep(unittest.TestCase):
     def test_the_unadopted_among_an_installations_repositories_asked_by_id(self):
         """The form's workflow holds ids and must not learn a name: with
         by_id the checks go to /repositories/ID, and unadopted keeps the
-        repositories with a commit and no offer, adoption or opt-out."""
+        repositories with a commit and no offer, adoption or opt-out, and
+        the empty ones, with no branch at all however GitHub says so, whose
+        first commit the form's run makes; a default branch missing beside
+        branches of the repository's own is no empty repository."""
         self.assertEqual(sweep.repo_path(REPOSITORY), "/repos/mona/widget")
         self.assertEqual(sweep.repo_path(dict(REPOSITORY, by_id=True)), "/repositories/4242")
         offered = dict(repository("mona/offered", 7), by_id=True)
         adopted = dict(repository("mona/adopted", 8), by_id=True)
         empty = dict(repository("mona/empty", 9), by_id=True)
+        stray = dict(repository("mona/stray", 10), by_id=True)
+        blank = dict(repository("mona/blank", 11), by_id=True)
         free = dict(REPOSITORY, by_id=True)
+        is_empty = (409, {"message": "Git Repository is empty."})
         github = FakeGitHub({
             ("GET", "/repositories/7/git/matching-refs/heads/symphony/adopt"): (200, [{"ref": "refs/heads/symphony/adopt"}]),
             ("GET", "/repositories/8/contents/docs/agents/PROTOCOL.md"): (200, {"type": "file"}),
             ("GET", "/repositories/9/branches/main"): NOT_FOUND,
+            ("GET", "/repositories/9/branches?per_page=1"): (200, []),
+            ("GET", "/repositories/10/branches/main"): NOT_FOUND,
+            ("GET", "/repositories/10/branches?per_page=1"): (200, [{"name": "draft"}]),
+            ("GET", "/repositories/11/branches/main"): is_empty,
+            ("GET", "/repositories/11/branches?per_page=1"): is_empty,
         })
-        chosen = sweep.unadopted(sweep.GitHub("token", github), [offered, adopted, empty, free, dict(free, archived=True)])
-        self.assertEqual([item["id"] for item in chosen], [4242])
+        chosen = sweep.unadopted(sweep.GitHub("token", github),
+                                 [offered, adopted, empty, free, dict(free, archived=True), stray, blank])
+        self.assertEqual([item["id"] for item in chosen], [9, 4242, 11])
         self.assertTrue(github.paths())
         self.assertTrue(all(path.startswith("/repositories/") for path in github.paths()))
+        # An empty repository holds no branch and no file to ask about.
+        for number in (9, 11):
+            self.assertEqual([path for path in github.paths() if path.startswith(f"/repositories/{number}/")],
+                             [f"/repositories/{number}/branches/main", f"/repositories/{number}/branches?per_page=1"])
+        # Any other refusal of the list is the caller's to answer.
+        failing = FakeGitHub({("GET", "/repositories/9/branches/main"): NOT_FOUND,
+                              ("GET", "/repositories/9/branches?per_page=1"): (500, {"message": "boom"})})
+        with self.assertRaises(sweep.GitHubError):
+            sweep.unadopted(sweep.GitHub("token", failing), [empty])
         # A check that fails is the caller's to answer, as a refusal.
         with self.assertRaises(sweep.GitHubError):
             sweep.unadopted(sweep.GitHub("token", FakeGitHub(raising="GitHub could not be reached")), [free])
