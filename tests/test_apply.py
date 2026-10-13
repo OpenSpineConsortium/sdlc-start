@@ -8,11 +8,15 @@ the protocol's text landed, and .claude/settings.json, which gains the
 keys it lacks; a workflow and its script come together or not at all, and
 a file the repository ignores is never written. Neither copies LICENSE,
 follows a link out of the template, or writes through a link out of the
-target or into its .git.
+target or into its .git; in neither does the metrics workflow land
+without its switch, and an adoption that could not write the protocol's
+text, by which the front door knows an adoption, is refused before
+anything is written.
 """
 
 import json
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -432,6 +436,45 @@ class Ignored(Scratch):
         self.assertFalse((self.target / "tools").exists())
         self.assertIn(".github/workflows/tidy.yml", manifest["added"])
 
+    def test_an_ignored_protocol_page_refuses_the_whole_adoption(self):
+        """The front door knows an adoption by docs/agents/PROTOCOL.md alone,
+        and every session reads the protocol there, so a repository that
+        ignores it is refused before anything is written, rather than
+        adopted where the next request could not tell."""
+        make_checkout(self.target, NO_GIT, "docs/\n")
+        before = snapshot(self.target)
+        code, manifest, err = apply(self.template, self.target, self.manifest, mode="existing")
+        self.assertEqual((code, manifest), (adopt.EXIT_REFUSED, None))
+        self.assertTrue(err.startswith("adopt: refused: docs/agents/PROTOCOL.md cannot be written: the repository"
+                                       " ignores it, or a file or link of its own stands where it or its folder goes"),
+                        err)
+        self.assertEqual(err.count("\n"), 1)
+        self.assertEqual(snapshot(self.target), before)
+        self.assertFalse(self.manifest.exists())
+
+    def test_an_ignored_switch_holds_the_metrics_workflow_back(self):
+        """The template's script reads a missing switch as on, so a workflow
+        landed without it would share whatever the form said: the workflow
+        and its script stay out with the switch, and nothing is shared."""
+        make_template(self.template, metrics=True)
+        for metrics in ("off", "on"):
+            with self.subTest(metrics=metrics):
+                shutil.rmtree(self.target, ignore_errors=True)
+                make_checkout(self.target, NO_GIT, "*-metrics\n")
+                code, manifest, err = apply(self.template, self.target, self.manifest, mode="existing",
+                                            metrics=metrics)
+                self.assertEqual(code, 0, err)
+                skipped = self.skipped(manifest)
+                self.assertEqual(skipped[adopt.SWITCH], adopt.IGNORED_WHY)
+                for rel in adopt.METRICS_FILES:
+                    self.assertEqual(skipped[rel], "`.github/symphony-metrics` is ignored by this repository, and the"
+                                     " metrics workflow and its script come only with the metrics switch, which says"
+                                     " whether they share", rel)
+                    self.assertFalse((self.target / rel).exists(), rel)
+                self.assertFalse(manifest["metrics_workflow"])
+                self.assertEqual(manifest["switches"], {})
+                self.assertIn("docs/agents/PROTOCOL.md", manifest["added"])
+
     def test_a_tracked_file_the_rules_match_is_still_merged(self):
         make_checkout(self.target, NO_GIT, "CLAUDE.md\n")
         track(self.target, "CLAUDE.md")
@@ -468,15 +511,37 @@ class Links(Scratch):
 
     def test_a_link_of_theirs_that_leads_out_is_never_written_through(self):
         make_target(self.target)
-        (self.target / "docs").symlink_to(self.outside, target_is_directory=True)
+        (self.target / "tools").symlink_to(self.outside, target_is_directory=True)
         code, manifest, err = apply(self.template, self.target, self.manifest, mode="existing")
         self.assertEqual(code, 0, err)
         skipped = self.skipped(manifest)
-        self.assertIn("docs/agents/PROTOCOL.md", skipped)
-        self.assertIn("leads out of the repository", skipped["docs/agents/PROTOCOL.md"])
+        self.assertIn("tools/board.py", skipped)
+        self.assertIn("leads out of the repository", skipped["tools/board.py"])
         self.assertEqual(sorted(p.name for p in self.outside.iterdir()), ["secret.md"])
-        self.assertFalse((self.target / "CLAUDE.md").exists(), "no section imports a page that is not there")
-        self.assertIn("was not written (above)", manifest["notes"][0])
+        self.assertIn("docs/agents/PROTOCOL.md", manifest["added"])
+
+    def test_a_protocol_page_that_cannot_be_written_refuses_the_adoption_in_either_mode(self):
+        """A link out where its folder goes, or a file of theirs there,
+        leaves no place for docs/agents/PROTOCOL.md, so nothing is written,
+        through the link or beside it, in either mode."""
+        cases = (("a link out", "existing"), ("a file where the folder goes", "new"),
+                 ("a file where the folder's folder goes", "existing"))
+        for case, mode in cases:
+            with self.subTest(case=case, mode=mode):
+                shutil.rmtree(self.target, ignore_errors=True)
+                make_target(self.target)
+                if case == "a link out":
+                    (self.target / "docs").symlink_to(self.outside, target_is_directory=True)
+                elif case == "a file where the folder goes":
+                    write(self.target, "docs", "their docs file\n")
+                else:
+                    write(self.target, "docs/agents", "their agents file\n")
+                before = snapshot(self.target)
+                code, manifest, err = apply(self.template, self.target, self.manifest, mode=mode)
+                self.assertEqual((code, manifest), (adopt.EXIT_REFUSED, None), err)
+                self.assertTrue(err.startswith("adopt: refused: docs/agents/PROTOCOL.md cannot be written"), err)
+                self.assertEqual(snapshot(self.target), before)
+                self.assertEqual(sorted(p.name for p in self.outside.iterdir()), ["secret.md"])
 
     def test_a_link_of_theirs_into_git_is_never_written_through(self):
         make_target(self.target, {".git/hooks/README": "hooks\n"})
@@ -502,6 +567,111 @@ class Links(Scratch):
         self.assertEqual(code, 0, err)
         self.assertEqual((self.target / "tools").read_text(), "their tools file\n")
         self.assertIn("tools/board.py", {item["path"] for item in manifest["skipped"]})
+
+
+class OptOuts(Scratch):
+    """An off the repository says already, in .github/symphony-metrics or
+    under the switch's name before the rename, .github/sdlc-metrics, is
+    never turned on by the form's default: the switch the adoption writes
+    says off too, in either mode, the pull request says why, and the
+    manifest says what the switches will do once merged, off in either file
+    winning."""
+
+    def setUp(self):
+        super().setUp()
+        make_template(self.template)
+
+    def adoption(self, files, mode, metrics="on"):
+        """Apply to a fresh target holding files; the manifest."""
+        shutil.rmtree(self.target, ignore_errors=True)
+        make_target(self.target, files)
+        code, manifest, err = apply(self.template, self.target, self.manifest, mode=mode, metrics=metrics)
+        self.assertEqual(code, 0, err)
+        return manifest
+
+    def switch(self, rel=adopt.SWITCH):
+        return (self.target / rel).read_text()
+
+    def held_notes(self, manifest):
+        return [note for note in manifest["notes"] if "never lifts an opt-out" in note]
+
+    def test_an_old_switch_saying_off_keeps_the_new_one_off(self):
+        for mode in ("existing", "new"):
+            with self.subTest(mode=mode):
+                manifest = self.adoption(dict(NO_GIT, **{adopt.OLD_SWITCH: "off\n"}), mode)
+                self.assertEqual(self.switch(), "off\n")
+                self.assertEqual(self.switch(adopt.OLD_SWITCH), "off\n")
+                self.assertEqual(manifest["metrics"], "on")
+                self.assertEqual(manifest["sharing"], "off")
+                self.assertEqual(manifest["switches"], {adopt.SWITCH: "off", adopt.OLD_SWITCH: "off"})
+                note, = self.held_notes(manifest)
+                self.assertIn(f"`{adopt.OLD_SWITCH}`, the switch under its name before the rename", note)
+                self.assertIn(f"write `on` in both files, or delete `{adopt.OLD_SWITCH}`", note)
+
+    def test_an_old_switch_is_read_by_its_first_word_as_the_workflow_reads_it(self):
+        for text, said in (("maybe\n", "off"), ("", "off"), ("OFF because we said so\n", "off"),
+                           ("On\n\nprose\n", "on")):
+            with self.subTest(text=text):
+                manifest = self.adoption(dict(NO_GIT, **{adopt.OLD_SWITCH: text}), "existing")
+                self.assertEqual(self.switch(), said + "\n")
+                self.assertEqual(manifest["sharing"], said)
+                self.assertEqual(len(self.held_notes(manifest)), 1 if said == "off" else 0)
+
+    def test_the_whole_template_keeps_a_later_opt_out_off(self):
+        """An owner who wrote off in the switch the documented way, before
+        a request whose box was left empty, keeps it off."""
+        manifest = self.adoption({"README.md": "# widget\n", adopt.SWITCH: "off\n\nWe share nothing.\n"}, "new")
+        self.assertIn(adopt.SWITCH, manifest["replaced"])
+        self.assertEqual(self.switch(), "off\n")
+        self.assertEqual((manifest["sharing"], manifest["switches"]), ("off", {adopt.SWITCH: "off"}))
+        note, = self.held_notes(manifest)
+        self.assertTrue(note.startswith(f"`{adopt.SWITCH}` said `off` before this request, so it still says `off`"))
+
+    def test_a_kept_switch_that_says_off_is_what_the_manifest_shares(self):
+        manifest = self.adoption(dict(NO_GIT, **{adopt.SWITCH: "off\n"}), "existing")
+        self.assertIn(adopt.SWITCH, manifest["kept"])
+        self.assertEqual(manifest["sharing"], "off")
+        self.assertEqual(self.held_notes(manifest), [], "the kept switch has its own note")
+
+    def test_a_switch_that_says_on_or_none_at_all_follows_the_form(self):
+        for files, metrics in ((NO_GIT, "on"), (NO_GIT, "off"), (dict(NO_GIT, **{adopt.OLD_SWITCH: "on\n"}), "on")):
+            for mode in ("existing", "new"):
+                with self.subTest(files=sorted(files), metrics=metrics, mode=mode):
+                    manifest = self.adoption(files, mode, metrics)
+                    self.assertEqual(self.switch(), metrics + "\n")
+                    self.assertEqual(manifest["sharing"], metrics)
+                    self.assertEqual(self.held_notes(manifest), [])
+
+    def test_a_switch_that_cannot_be_read_here_reads_as_off(self):
+        """Each doubt falls to off: an old switch that is a link out of the
+        repository, a link to nothing or bytes that are not text, each
+        saying on, keeps the new switch off, in either mode; one that is a
+        link inside the repository reads as the file it leads to."""
+        outside = write(self.root, "outside/switch", "on\n")
+        makers = {
+            "a link out": lambda path: path.symlink_to(outside),
+            "a link to nothing": lambda path: path.symlink_to(path.parent / "missing"),
+            "bytes that are not text": lambda path: path.write_bytes(b"on \xff\n"),
+            "a link inside": lambda path: path.symlink_to(self.target / "docs/switch-word"),
+        }
+        for case, make in makers.items():
+            for mode in ("existing", "new"):
+                with self.subTest(case=case, mode=mode):
+                    shutil.rmtree(self.target, ignore_errors=True)
+                    make_target(self.target, dict(NO_GIT, **{"docs/switch-word": "on\n"}))
+                    make(self.target / adopt.OLD_SWITCH)
+                    code, manifest, err = apply(self.template, self.target, self.manifest, mode=mode)
+                    self.assertEqual(code, 0, err)
+                    said = "on" if case == "a link inside" else "off"
+                    self.assertEqual(self.switch(), said + "\n")
+                    self.assertEqual((manifest["sharing"], manifest["switches"][adopt.OLD_SWITCH]), (said, said))
+                    self.assertEqual(outside.read_text(), "on\n")
+
+    def test_the_form_asking_off_needs_no_note(self):
+        manifest = self.adoption(dict(NO_GIT, **{adopt.OLD_SWITCH: "off\n"}), "existing", metrics="off")
+        self.assertEqual(self.switch(), "off\n")
+        self.assertEqual((manifest["metrics"], manifest["sharing"]), ("off", "off"))
+        self.assertEqual(self.held_notes(manifest), [])
 
 
 class Refusals(Scratch):

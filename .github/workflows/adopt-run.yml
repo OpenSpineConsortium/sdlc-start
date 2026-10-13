@@ -36,7 +36,16 @@ name: Adopt (run)
 # out of this public log, the Setup App's token is minted after the push
 # and revoked right after the settings, and two requests for one
 # repository are settled by the push of symphony/adopt, which only one of
-# them can make.
+# them can make. A repository adopted already is refused on every path
+# before anything is staged, by the sweep's own rule (scripts/adopted.py
+# asks sweep.is_adopted), since a name typed on the form meets neither
+# the sweep's checks nor the installation's, and a second adoption would
+# put the template's files over the repository's own or, for the protocol
+# alone, bring back what it took out; on the form's paths, which need the
+# Setup App, that App then uninstalls itself as after an adoption. And
+# apply refuses an adoption that could not write docs/agents/PROTOCOL.md,
+# the one file that rule reads, so every adoption made is one the next
+# request knows.
 
 on:
   workflow_call:
@@ -256,6 +265,34 @@ jobs:
             bash start/scripts/refuse.sh "Nothing was done: $SAID has no commit yet, and a pull request needs a branch to go into. Add a first commit (a README is enough), then open a new request with the form; this one is closed."
             exit 0
           fi
+          # Adopted already, by the sweep's own rule (docs/agents/PROTOCOL.md
+          # on the default branch, asked through sweep.is_adopted): the sweep
+          # and the installation's path pass such a repository over, and a
+          # name typed on the form reaches this run by neither, so it asks
+          # here, on every path. A second adoption would put the template's
+          # files over the ones the repository has made its own since, or,
+          # for the protocol alone, bring back what it has taken out. One
+          # answer, whatever the kind it had and on every path, names
+          # nothing of the repository and says what to do instead: where
+          # the protocol's later releases come from, how to adopt it again
+          # (the other kind, or what its pull request left out, both by
+          # reverting that adoption first), that the Setup App the form
+          # asked for uninstalls itself, and that the topic symphony is what
+          # the browser extension reads. It comes before the branch
+          # symphony/adopt, so a merged adoption that kept its branch is
+          # told that it is adopted rather than sent to delete the branch
+          # and ask again. A refusal here is one the sweep would have made
+          # itself, so on its path nothing is told to the repository.
+          adopted=0
+          python3 start/scripts/adopted.py "$TARGET" 2> "$RUNNER_TEMP/adopted-said" || adopted=$?
+          case "$adopted" in
+            0) ;;
+            3) echo "ADOPTED=true" >> "$GITHUB_ENV"
+               bash start/scripts/refuse.sh "Nothing was done: the repository is adopted already. Its default branch holds docs/agents/PROTOCOL.md, which every adoption from this front door brings, of either kind, and every copy made with \"Use this template\" carries, and the form adopts a repository once, since a second adoption would put the template's files over the ones the repository has made its own since, or, for the protocol alone, bring back what it has taken out. Later releases of the claim protocol reach it by pull request, from its own .github/workflows/protocol.yml where it has one, or from a clone of the public OpenSpineConsortium/symphony-protocol with its scripts/vendor.py; what the adoption's pull request did not write, its notes say how to add. To adopt it again, as the other kind or with what was left out, first revert that adoption's merge on the default branch, so docs/agents/PROTOCOL.md is gone from it, or rename that file if it is one of your own and not this protocol, then ask again. Symphony Setup, where it was installed for this request, did nothing here: it uninstalls itself as this run ends where this repository is the only one it was given, and is yours to uninstall otherwise. For the repository's page to say it is adopted, and the Symphony browser extension's button to read Ready for Symphony, add the topic symphony with the gear beside About there, where it is missing. To adopt another repository, open a new request with the form naming that one; this one is closed."
+               exit 0 ;;
+            *) echo "whether the repository is adopted already could not be read: $(head -n 1 "$RUNNER_TEMP/adopted-said")"
+               exit 1 ;;
+          esac
           taken="$(for b in symphony/adopt sdlc/adopt; do gh api "repos/$TARGET/git/matching-refs/heads/$b" --jq "[.[] | select(.ref == \"refs/heads/$b\")] | length" 2>/dev/null || echo 0; done | awk '{s+=$1} END {print s+0}')"
           if [ "$taken" != 0 ]; then
             open="$(for b in symphony/adopt sdlc/adopt; do gh api "repos/$TARGET/pulls?state=open&head=$OWNER:$b" --jq 'length' 2>/dev/null || echo 0; done | awk '{s+=$1} END {print s+0}')"
@@ -348,6 +385,7 @@ jobs:
           OWNER_TYPE: ${{ steps.target.outputs.owner_type }}
           DEFAULT_BRANCH: ${{ steps.target.outputs.default_branch }}
           METRICS: ${{ inputs.metrics }}
+          ISSUE_TOKEN: ${{ github.token }}
         run: |
           spec=()
           if [ "$MODE" = existing ]; then
@@ -356,10 +394,22 @@ jobs:
           if [ "$KIND_READ" = true ]; then
             spec+=(--kind-read)
           fi
+          # apply refuses, with exit status 3 and before it writes anything,
+          # an adoption that could not write docs/agents/PROTOCOL.md: every
+          # session reads the protocol there, and the next request knows
+          # the repository is adopted by that file alone. That is an answer
+          # on the request, not a failure of the run.
+          applied=0
           python3 start/scripts/adopt.py apply --template template --target target \
             --repo "$TARGET" --creator "$REQUESTER" --owner-type "$OWNER_TYPE" \
             --default-branch "$DEFAULT_BRANCH" --mode "$MODE" --metrics "$METRICS" --source "$SOURCE" \
-            --manifest "$RUNNER_TEMP/manifest.json" "${spec[@]}"
+            --manifest "$RUNNER_TEMP/manifest.json" "${spec[@]}" || applied=$?
+          case "$applied" in
+            0) ;;
+            3) bash start/scripts/refuse.sh "Nothing was done: docs/agents/PROTOCOL.md, the claim protocol's text, cannot be written in $SAID: its ignore rules match that file, or a file or link of its own stands where it or its folder goes. Every adoption brings it, since every Claude Code session reads the protocol there and the front door knows by it that a repository is adopted, so none is made without it. Stop ignoring it, or move what stands in its way, then open a new request with the form; this one is closed."
+               exit 0 ;;
+            *) exit 1 ;;
+          esac
           python3 start/scripts/adopt.py body --title --manifest "$RUNNER_TEMP/manifest.json" > "$RUNNER_TEMP/title"
 
       # The commit is the App's, under its bot's name and noreply address, so
@@ -435,6 +485,12 @@ jobs:
           TARGET: ${{ env.TARGET }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          # The sweep passes an adopted repository over by its own checks,
+          # so one adopted between the sweep and this run is told nothing.
+          if [ "${ADOPTED:-}" = true ]; then
+            echo "the repository is adopted already, which the sweep reads for itself; nothing to tell"
+            exit 0
+          fi
           taken="$(for b in symphony/adopt sdlc/adopt; do gh api "repos/$TARGET/git/matching-refs/heads/$b" --jq "[.[] | select(.ref == \"refs/heads/$b\")] | length" 2>/dev/null || echo 0; done | awk '{s+=$1} END {print s+0}')"
           if [ "$taken" != 0 ] && [ "${PUSHED:-}" != true ]; then
             echo "another run holds the branch; nothing to tell"
@@ -559,13 +615,22 @@ jobs:
       # Its one job done, the Setup App uninstalls itself, which an App may
       # do with its own JWT, when its installation reaches this repository
       # alone; one that reaches more stays, and the pull request says so.
+      # A request refused because the repository is adopted already is done
+      # too, with nothing left for the Setup App to do there, so on the
+      # form's paths, which require it, it goes the same way, as the answer
+      # says; there is no report to mark then, and a front door without the
+      # Setup App has nothing to uninstall.
       - name: Uninstall the Setup App when this was its only repository
-        if: env.REFUSED != 'true' && env.SETTINGS == 'applied'
+        if: (env.REFUSED != 'true' && env.SETTINGS == 'applied') || (env.ADOPTED == 'true' && env.SOURCE == 'issue')
         env:
           APP_ID: ${{ vars.SDLC_SETUP_APP_ID }}
           APP_PRIVATE_KEY: ${{ secrets.SDLC_SETUP_APP_PRIVATE_KEY }}
           TARGET: ${{ env.TARGET }}
         run: |
+          if [ -z "$APP_ID" ] || [ -z "$APP_PRIVATE_KEY" ]; then
+            echo "this front door has no Setup App; nothing to uninstall"
+            exit 0
+          fi
           accept="Accept: application/vnd.github+json"
           jwt="$(bash start/scripts/jwt.sh)"
           echo "::add-mask::$jwt"
@@ -590,16 +655,18 @@ jobs:
           if [ "$count" = 1 ]; then
             status="$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: Bearer $jwt" -H "$accept" "https://api.github.com/app/installations/$id")"
             if [ "$status" = 204 ]; then
-              python3 -c 'import json, sys
+              if [ -f "$RUNNER_TEMP/settings.json" ]; then
+                python3 -c 'import json, sys
           path = sys.argv[1]
           report = json.load(open(path))
           report["uninstalled"] = True
           json.dump(report, open(path, "w"), indent=2)' "$RUNNER_TEMP/settings.json"
+              fi
               echo "SETUP_UNINSTALLED=true" >> "$GITHUB_ENV"
               echo "the Setup App uninstalled itself: this was its only repository"
               exit 0
             fi
-            echo "::warning::the Setup App could not uninstall itself; the pull request says to uninstall it"
+            echo "::warning::the Setup App could not uninstall itself; it stays installed for the person to uninstall"
             exit 0
           fi
           echo "the Setup App stays installed: its installation reaches more than this repository"

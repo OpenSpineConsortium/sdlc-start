@@ -160,14 +160,28 @@ class Body(unittest.TestCase):
                       " at all", body)
 
     def test_ignored_files_get_what_to_do_instead(self):
+        """The form adopts a repository once, so the note gives the steps by
+        hand and never sends the person back to it after the merge."""
         body = self.body({"README.md": "# widget\n"}, ignore=".claude/\nCLAUDE.md\n", mode="existing")
         self.assertIn("- `CLAUDE.md` and `.claude/settings.json`: " + adopt.IGNORED_WHY, body)
         self.assertIn("Files this repository ignores were not written", body)
+        self.assertIn("the form adopts a repository once, so asking there again after the merge is refused. What to"
+                      " do instead:", body)
+        self.assertNotIn("Stop ignoring them and ask again on the form", body)
         self.assertIn("add this section to the `CLAUDE.md` each session reads", body)
         self.assertIn("```markdown\n## How work is claimed\n", body)
         self.assertIn("claude plugin marketplace add OpenSpineConsortium/symphony-marketplace", body)
         self.assertIn('"symphony@symphony-marketplace": true', body)
         self.assertNotIn("gains the section", body)
+
+    def test_ignored_files_with_no_way_by_hand_come_only_with_an_adoption_made_again(self):
+        body = self.body(NO_GIT, ignore="tools/\n", mode="existing")
+        self.assertIn("- `tools/VENDORED`, `tools/board.py`, `tools/sdlc_protocol/__init__.py`,"
+                      " `tools/sdlc_protocol/board.py`: their content is not in this pull request, and only an adoption"
+                      " made again brings it: stop ignoring them, close this pull request, or revert its merge on the"
+                      " default branch once it is merged, delete its branch `symphony/adopt` where it is still there,"
+                      " and ask again on the form.", body)
+        self.assertNotIn("ask again once they are no longer ignored", body)
 
     def test_invalid_settings_get_the_keys_to_add_by_hand(self):
         body = self.body({".claude/settings.json": "{"}, mode="existing")
@@ -214,6 +228,43 @@ class Body(unittest.TestCase):
     def test_sharing_off(self):
         body = self.body(metrics="off")
         self.assertIn("Nothing is shared", body)
+        self.assertNotIn("Sharing of anonymous aggregates is on", body)
+
+    def test_an_old_opt_out_is_what_the_body_says_whatever_the_form_left(self):
+        """A repository adopted before the rename says off in
+        .github/sdlc-metrics: the form's default leaves the new switch off
+        too, and the body says nothing is shared, naming both files, never
+        that sharing is on."""
+        body = self.body(dict(NO_GIT, **{".github/sdlc-metrics": "off\n"}), mode="existing", kind_read=True)
+        self.assertIn("Nothing is shared: `.github/symphony-metrics` and `.github/sdlc-metrics` say `off`", body)
+        self.assertIn("Write `on` in both to share", body)
+        self.assertIn("`.github/sdlc-metrics`, the switch under its name before the rename to Symphony, says `off`, so"
+                      " `.github/symphony-metrics` says `off` too, though the form left sharing on", body)
+        self.assertNotIn("Sharing of anonymous aggregates is on", body)
+
+    def test_a_switch_that_could_not_be_written_shares_nothing_and_says_so(self):
+        """A repository that ignores the switch gets neither it nor the
+        metrics workflow, whatever the form asked, and the body says so
+        rather than naming a switch that is not there."""
+        make_template(self.template, metrics=True)
+        for metrics in ("off", "on"):
+            with self.subTest(metrics=metrics):
+                shutil.rmtree(self.root / "target", ignore_errors=True)
+                body = self.body(NO_GIT, ignore="*-metrics\n", mode="existing", metrics=metrics)
+                self.assertIn("Nothing is shared: the metrics switch `.github/symphony-metrics` was not written"
+                              " (above), and the metrics workflow comes only with it, so that was not written either.",
+                              body)
+                self.assertIn("come only with the metrics switch, which says whether they share", body)
+                self.assertNotIn("Sharing of anonymous aggregates is on", body)
+                self.assertNotIn("says `on`", body)
+                self.assertNotIn("Never target `board` or `metrics`", body)
+
+    def test_a_kept_switch_that_says_off_is_never_called_on(self):
+        """The note says the kept switch says off; the section on sharing
+        says the same, not what the form asked."""
+        body = self.body(dict(NO_GIT, **{".github/symphony-metrics": "off\n"}), mode="existing")
+        self.assertIn(".github/symphony-metrics was there already and says `off`, where the form asked for `on`", body)
+        self.assertIn("Nothing is shared: `.github/symphony-metrics` says `off`", body)
         self.assertNotIn("Sharing of anonymous aggregates is on", body)
 
     def test_the_title_per_mode(self):
@@ -554,8 +605,10 @@ class Body(unittest.TestCase):
                       " default branch held nothing but what GitHub makes when it initializes one (a README, a LICENSE"
                       " or COPYING, a .gitignore or .gitattributes)", body)
         self.assertIn("For the protocol alone instead, close this pull request, which is the end of the front door's"
-                      " own offers for this repository, then delete its branch `symphony/adopt` and open the form at"
-                      " https://github.com/OpenSpineConsortium/symphony-start with the other kind.", body)
+                      " own offers for this repository, or revert its merge on the default branch once it is merged,"
+                      " since the form adopts a repository once; then delete its branch `symphony/adopt`, where it is"
+                      " still there, and open the form at https://github.com/OpenSpineConsortium/symphony-start with"
+                      " the other kind.", body)
         self.assertIn("`.github/CODEOWNERS` names `octo-org`, the organization itself, since the run found no"
                       " administrator among the repository's direct collaborators; GitHub marks that line as one it"
                       " cannot resolve, so name a person or a team, because GitHub asks", body)
@@ -574,14 +627,17 @@ class Body(unittest.TestCase):
     def test_a_form_that_left_the_kind_to_the_run(self):
         """The one-button form: the kind was read from the tree, and the
         note says so in the form's own terms, with the other kind one form
-        away and no word about the sweep's offers."""
+        away once this pull request is closed, or its merge reverted, since
+        the form adopts a repository once, and no word about the sweep's
+        offers."""
         body = self.body(kind_read=True)
         self.assertIn("asked for it on the adoption form", body)
         self.assertIn("The form left the kind to the run, which read this repository as a new repository, since its"
                       " default branch held nothing but what GitHub makes when it initializes one", body)
-        self.assertIn("For the protocol alone instead, close this pull request, delete its branch `symphony/adopt`, and"
-                      " open the form at https://github.com/OpenSpineConsortium/symphony-start choosing the other kind.",
-                      body)
+        self.assertIn("For the protocol alone instead, close this pull request, or revert its merge on the default"
+                      " branch once it is merged, since the form adopts a repository once; then delete its branch"
+                      " `symphony/adopt`, where it is still there, and open the form at"
+                      " https://github.com/OpenSpineConsortium/symphony-start choosing the other kind.", body)
         self.assertNotIn("No form said", body)
         self.assertNotIn("end of the front door's own offers", body)
         body = self.body(THEIR_FILES, mode="existing", kind_read=True)

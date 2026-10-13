@@ -1,6 +1,6 @@
 # Symphony GitHub Apps privacy statement
 
-Version 4, 2026-10-13. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
+Version 5, 2026-10-13. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
 The Symphony browser extension has a statement of its own, at https://openspineconsortium.com/symphony/privacy.html.
 
 Who makes the Apps: Gregory Schwing, trading as OpenSpineConsortium ("the developer"). Questions:
@@ -35,7 +35,9 @@ it is turned on. SymphonyBoard never asks for Administration.
 Symphony Setup asks for two permissions and nothing else: Administration (read and write), for the
 six settings below, and Metadata (read). It has no webhook and receives no event. It is meant to be
 installed on the one repository being adopted, for the one run, and the run uninstalls it when that
-repository was the only one it reached; otherwise the pull request asks you to uninstall it.
+repository was the only one it reached, after the adoption or after a request refused because the
+repository is adopted already; otherwise the pull request, or that refusal's answer, asks you to
+uninstall it.
 
 ## The adoption
 
@@ -53,8 +55,9 @@ it added, replaced, kept or skipped, and the commit ids of your default branch a
 
 To do its work the run reads, from the repository being adopted: the default branch and the commit
 on it, whether a branch `symphony/adopt` exists and has a pull request, whether `docs/agents/PROTOCOL.md`
-exists, the one word in `.github/symphony-adopt` and `.github/symphony-metrics`, the full listing of
-the default branch's tree (to decide the kind), a checkout of that branch at depth one (to add the
+exists, the one word in `.github/symphony-adopt` and `.github/symphony-metrics` and in each under
+its name before the rename to Symphony, `.github/sdlc-adopt` and `.github/sdlc-metrics`, the full
+listing of the default branch's tree (to decide the kind), a checkout of that branch at depth one (to add the
 files), whether you administer the repository and, when the request came from the sweep below
 rather than from you, the repository's direct collaborators and their permissions, to find an
 administrator. With Symphony Setup installed, the run also reads the repository's rulesets, its
@@ -191,9 +194,14 @@ api.github.com and nowhere else.
 ## Sharing is on by default, with three ways off
 
 Sharing is on unless you turn it off: the adoption writes `on` into `.github/symphony-metrics`
-unless you ticked the form's box "Do not share anonymous aggregates", and the sweep's adoptions
-write `on`. To turn it off at any time: write `off` as the first word of `.github/symphony-metrics`
-on your default branch, or set the repository Actions variable `SDLC_METRICS` to `off` (and run the
+unless you ticked the form's box "Do not share anonymous aggregates" or a switch of the repository's
+own says `off` already, under that name or under `.github/sdlc-metrics`, its name before the rename
+to Symphony, which the adoption never turns on; the sweep's adoptions write `on` on the same terms.
+Where the switch cannot be written, because the repository ignores it or something of its own
+stands where it goes, the adoption brings no metrics workflow either, and nothing is shared. To turn
+it off at any time: write `off` as the first word of `.github/symphony-metrics` on your default
+branch (in a repository adopted before the rename, whose workflow reads only `.github/sdlc-metrics`,
+write it there), or set the repository Actions variable `SDLC_METRICS` to `off` (and run the
 workflow once, so the record on the branch says off), or uninstall SymphonyBoard, after which the
 collector reaches nothing of yours. Disabling the workflow alone does not stop sharing, because the
 branch keeps its last record and the collector reads it as that day's; turn the switch off first.
@@ -254,6 +262,14 @@ Symphony is for people who administer GitHub repositories. It is not directed at
 A new version of this statement is published at https://openspineconsortium.com/symphony/apps-privacy.html
 and in the front door repository, github.com/OpenSpineConsortium/symphony-start, whose PRIVACY.md is
 this text.
+
+Version 5 says that the run also reads the two switches under their names before the rename to
+Symphony, `.github/sdlc-adopt` and `.github/sdlc-metrics`; that an adoption never turns on a switch
+of the repository's own that says off already, under either name, and brings no metrics workflow
+where it cannot write the switch; that a repository adopted before the rename turns sharing off in
+`.github/sdlc-metrics`, the switch its workflow reads; and that Symphony Setup also uninstalls
+itself after a request refused because the repository is adopted already. Nothing the developer
+receives or keeps changed.
 
 Version 4 adds the sixth setting Symphony Setup applies: in a repository that takes the whole
 template, it ticks "Allow GitHub Actions to create and approve pull requests" where your

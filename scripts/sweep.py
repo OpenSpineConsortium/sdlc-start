@@ -473,6 +473,11 @@ def has_adopt_branch(github, repository):
 
 
 def is_adopted(github, repository):
+    """Whether docs/agents/PROTOCOL.md is on the default branch, which every
+    adoption brings, since scripts/adopt.py apply refuses one that could not
+    write it: the one rule for an adoption already made, which the
+    installation's path asks through unadopted and a repository named on
+    the form through scripts/adopted.py."""
     return found(github, f"{repo_path(repository)}/contents/{PROTOCOL_TEXT}")
 
 

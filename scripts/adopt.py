@@ -27,7 +27,12 @@ body and labels, one subcommand per step:
          repository ignores is never written, the protocol's text is the
          library's spec when --protocol-spec names it, CLAUDE.md gains
          one section once that text has landed, and .claude/settings.json
-         the keys that enable the symphony plugin.
+         the keys that enable the symphony plugin. In either mode the
+         metrics workflow comes only with the switch it reads, and an
+         adoption that could not write docs/agents/PROTOCOL.md is refused
+         before anything is written, with exit status 3: every session
+         reads the protocol there, and the front door knows an adoption
+         by that file.
   body   prints the pull request's text from the manifest, or with
          --title its title; with --settings, the report scripts/setup.py
          wrote is rendered into it, so the pull request says which of
@@ -122,6 +127,12 @@ METRICS_FILES = (METRICS_WORKFLOW, METRICS_SCRIPT)
 # and which session made it only where the script that landed holds the key.
 BREAKDOWN_KEY = b"by_setting"
 SWITCH = ".github/symphony-metrics"
+# The switch under its name before the rename to Symphony, which a
+# repository adopted before it carries and the template's tools/metrics.py
+# still reads: an off there is the person's word as much as one in SWITCH,
+# and the form's default never lifts it.
+OLD_SWITCH = ".github/sdlc-metrics"
+SWITCHES = (SWITCH, OLD_SWITCH)
 # Mode existing brings a workflow and the script it runs together or not
 # at all: the template's workflow would run a script of theirs by the same
 # name, with contents: write, and theirs would run the template's. The
@@ -188,6 +199,9 @@ ACTIONS_LABEL = "Allow GitHub Actions to create and approve pull requests"
 # adopted with, so the pull request names the box among the script's steps
 # only where the script that landed calls it.
 ACTIONS_PATH = b"actions/permissions/workflow"
+# apply's exit status for an adoption it refuses, which the run answers as
+# a refusal on the request rather than as a failure of its own.
+EXIT_REFUSED = 3
 
 
 class FormError(Exception):
@@ -196,6 +210,11 @@ class FormError(Exception):
 
 class AdoptError(Exception):
     """Something apply or labels cannot do; one line."""
+
+
+class Refusal(AdoptError):
+    """An adoption apply will not make in this repository, refused before
+    anything is written; one line that names nothing of the repository."""
 
 
 # --- parse ------------------------------------------------------------------------
@@ -439,9 +458,10 @@ def protocol_plan(staged, spec):
     return plan, ("template" if spec is None else "spec")
 
 
-def staged_plan(template, options):
+def staged_plan(template, options, metrics):
     """What goes into the target, staged and filled in a scratch folder that
-    lies in neither tree."""
+    lies in neither tree; the switch says metrics, the word the adoption
+    writes."""
     spec = read_spec(options)
     files, links = template_files(template)
     with tempfile.TemporaryDirectory(prefix="sdlc-adopt-") as scratch:
@@ -452,7 +472,7 @@ def staged_plan(template, options):
         write_event(event, options.repo, options.owner_type, options.creator)
         run_template_init(template, staging, event, options.repo, options.default_branch)
         (staging / SWITCH).parent.mkdir(parents=True, exist_ok=True)
-        (staging / SWITCH).write_text(options.metrics + "\n", encoding="ascii")
+        (staging / SWITCH).write_text(metrics + "\n", encoding="ascii")
         staged = read_plan(staging)
     if options.mode == "new":
         return staged, links, "template"
@@ -593,6 +613,38 @@ def unit_holdbacks(target, plan, ignored):
     return held
 
 
+def held_for_the_switch(target, plan, ignored, held, overwrite):
+    """rel -> why, for each file of the metrics workflow that would be
+    written while the switch will not be, because the repository ignores it
+    or something of its own stands in its way: the template's
+    tools/metrics.py reads a missing switch as on, so the workflow would
+    share whatever the form said. A switch the repository has already is
+    kept, or in mode new written over, so it holds nothing back."""
+    if SWITCH in ignored:
+        cause = "is ignored by this repository"
+    elif blocked(target, SWITCH):
+        cause = "cannot be written here"
+    else:
+        return {}
+    why = (f"`{SWITCH}` {cause}, and the metrics workflow and its script come only with the metrics switch, which"
+           " says whether they share")
+    written = [rel for rel in METRICS_FILES if rel in plan and rel not in held and rel not in ignored
+               and not blocked(target, rel) and (overwrite or not exists(target / rel))]
+    return {rel: why for rel in written}
+
+
+def refuse_without_protocol(target, ignored):
+    """Refuse, before anything is written, an adoption that could not write
+    the protocol's text, which the repository ignores or a file or link of
+    its own stands in the way of: every Claude Code session reads the
+    protocol there, and the front door knows an adoption by that file alone
+    (scripts/sweep.py, is_adopted), so one made without it would neither
+    work from its first day nor be known for one by the next request."""
+    if PROTOCOL_TEXT in ignored or blocked(target, PROTOCOL_TEXT):
+        raise Refusal(f"{PROTOCOL_TEXT} cannot be written: the repository ignores it, or a file or link of its own"
+                      " stands where it or its folder goes")
+
+
 def with_section(text):
     """Their CLAUDE.md with the section after it, in their line endings."""
     section = CLAUDE_SECTION
@@ -606,15 +658,14 @@ def with_section(text):
 
 def note_missing_protocol(manifest):
     """Say why CLAUDE.md gains no section: the protocol's text did not land,
-    so there is nothing of the template's to import."""
-    if PROTOCOL_TEXT in manifest["kept"]:
-        cause = "is this repository's own and is kept"
-    else:
-        cause = "was not written (above)"
+    so there is nothing of the template's to import. It did not land because
+    the repository's own file is kept, since an adoption that could not
+    write it at all is refused (refuse_without_protocol)."""
     manifest["notes"].append(
-        f"`{PROTOCOL_TEXT}` {cause}, so the claim protocol's text did not land and `{CLAUDE_MD}` gains no section"
-        " importing it. The text is spec/PROTOCOL.md in the public OpenSpineConsortium/symphony-protocol; once it"
-        f" stands at `{PROTOCOL_TEXT}`, add this to `{CLAUDE_MD}`:\n\n```markdown\n{CLAUDE_SECTION}```"
+        f"`{PROTOCOL_TEXT}` is this repository's own and is kept, so the claim protocol's text did not land and"
+        f" `{CLAUDE_MD}` gains no section importing it. The text is spec/PROTOCOL.md in the public"
+        f" OpenSpineConsortium/symphony-protocol; once it stands at `{PROTOCOL_TEXT}`, add this to `{CLAUDE_MD}`:"
+        f"\n\n```markdown\n{CLAUDE_SECTION}```"
     )
 
 
@@ -753,6 +804,55 @@ def first_word(text):
     return words[0].lower() if words else ""
 
 
+def switch_says(target, rel):
+    """What the switch file rel of the target says, as the template's
+    tools/metrics.py reads it: on only with the word on first, off when it
+    says anything else or cannot be read here, and None when there is no
+    such file. Each doubt falls to off, since off shares nothing."""
+    if not exists(target / rel):
+        return None
+    real, why = existing_file(target, rel)
+    if why:
+        return "off"
+    try:
+        text = real.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return "off"
+    return "on" if first_word(text) == "on" else "off"
+
+
+def switches_off(target):
+    """The switch files of the target that say off, under the switch's name
+    or its old one: an opt-out the adoption never turns back on."""
+    return [rel for rel in SWITCHES if switch_says(target, rel) == "off"]
+
+
+def switches_after(target):
+    """What each switch file of the target says once the files have landed,
+    the new name first; a file that is not there is left out."""
+    return {rel: said for rel in SWITCHES if (said := switch_says(target, rel))}
+
+
+def note_held_switch(manifest, said_off, metrics):
+    """Say why the switch this adoption wrote says off where the form left
+    sharing on: a switch of the repository's own said off before it, and
+    the form's default never lifts an opt-out made in the repository."""
+    if metrics != "on" or not said_off or SWITCH not in manifest["added"] + manifest["replaced"]:
+        return
+    if OLD_SWITCH in said_off:
+        said = f"`{OLD_SWITCH}`, the switch under its name before the rename to Symphony, says `off`"
+        if SWITCH in said_off:
+            said += f", as `{SWITCH}` did, so `{SWITCH}` still says `off`"
+        else:
+            said += f", so `{SWITCH}` says `off` too"
+        lift = f"write `on` in both files, or delete `{OLD_SWITCH}` and write `on` in `{SWITCH}`"
+    else:
+        said = f"`{SWITCH}` said `off` before this request, so it still says `off`"
+        lift = "write `on` there"
+    manifest["notes"].append(f"{said}, though the form left sharing on: the form's default never lifts an opt-out made"
+                             f" in the repository. To share, {lift}.")
+
+
 def note_kept_switch(target, manifest, metrics):
     """Say so when mode existing kept a switch that says something else than
     the form asked."""
@@ -812,8 +912,12 @@ def new_manifest(options, links, protocol_text, plan):
         "creator": options.creator,
         "source": options.source,
         "kind_read": options.kind_read,
-        # The workflow, whether its script counts by setting and whether the
-        # setup script ticks the box are known once the files have landed.
+        # What the switches say, and so whether anything is shared, is
+        # known once the files have landed, like the workflow, whether its
+        # script counts by setting and whether the setup script ticks the
+        # box; metrics above is what the form asked.
+        "switches": {},
+        "sharing": options.metrics,
         "metrics_workflow": False,
         "metrics_breakdown": False,
         "setup_script_ticks_box": False,
@@ -832,12 +936,18 @@ def adopt(options):
     """Apply the adoption to the target and write the manifest; the manifest."""
     checked_options(options)
     template, target, manifest_path = checked_roots(options)
-    plan, links, protocol_text = staged_plan(template, options)
+    # An off the repository says already, under either name, is read
+    # before anything is written, and the switch the adoption writes says
+    # off too: the form's default of on never lifts an opt-out.
+    said_off = switches_off(target)
+    plan, links, protocol_text = staged_plan(template, options, "off" if said_off else options.metrics)
     manifest = new_manifest(options, links, protocol_text, plan)
     ignored, held = set(), {}
     if options.mode == "existing":
         ignored = ignored_paths(target, sorted(plan) + [CLAUDE_MD, SETTINGS])
         held = unit_holdbacks(target, plan, ignored)
+    refuse_without_protocol(target, ignored)
+    held.update(held_for_the_switch(target, plan, ignored, held, options.mode == "new"))
     for rel in sorted(plan):
         if rel in ignored:
             record(manifest, rel, "skipped", IGNORED_WHY)
@@ -850,6 +960,11 @@ def adopt(options):
         add_claude_section(target, manifest, ignored)
         merge_settings(target, manifest, ignored)
         note_kept_switch(target, manifest, options.metrics)
+    note_held_switch(manifest, said_off, options.metrics)
+    # Off in either file wins, as the template's tools/metrics.py reads
+    # them, so the pull request says what the switches it leaves will do.
+    manifest["switches"] = switches_after(target)
+    manifest["sharing"] = "off" if "off" in manifest["switches"].values() else "on"
     landed = manifest["added"] + manifest["replaced"]
     manifest["metrics_workflow"] = all(rel in landed for rel in METRICS_FILES)
     manifest["metrics_breakdown"] = manifest["metrics_workflow"] and BREAKDOWN_KEY in plan[METRICS_SCRIPT][0]
@@ -863,6 +978,9 @@ def adopt(options):
 def command_apply(options):
     try:
         manifest = adopt(options)
+    except Refusal as refusal:
+        print(f"adopt: refused: {refusal}", file=sys.stderr)
+        return EXIT_REFUSED
     except (AdoptError, OSError) as problem:
         print(f"adopt: {problem}", file=sys.stderr)
         return 1
@@ -979,10 +1097,13 @@ def changes_section(manifest):
 
 def ignored_notes(ignored):
     """What to do about the files the repository ignores, which were not
-    written, each with what this pull request would have put there."""
+    written, each with what this pull request would have put there. The
+    form adopts a repository once, so a request made there after the merge
+    is refused: a file with a way by hand is given it, and the rest comes
+    only with an adoption made again, once this one is closed or reverted."""
     parts = ["Files this repository ignores were not written, since git replaces each person's own copy of an"
-             " ignored file on their next pull without a word. Stop ignoring them and ask again on the form, or do"
-             " by hand what this pull request would have done:", ""]
+             " ignored file on their next pull without a word, and the form adopts a repository once, so asking"
+             " there again after the merge is refused. What to do instead:", ""]
     if CLAUDE_MD in ignored:
         parts += [f"- `{CLAUDE_MD}`: add this section to the `{CLAUDE_MD}` each session reads.", "",
                   "```markdown", CLAUDE_SECTION.rstrip("\n"), "```", ""]
@@ -993,8 +1114,11 @@ def ignored_notes(ignored):
                   "```json", preset_settings().rstrip("\n"), "```", ""]
     others = [rel for rel in ignored if rel not in (CLAUDE_MD, SETTINGS)]
     if others:
-        parts += ["- " + ", ".join(f"`{rel}`" for rel in others) + ": their content is not in this pull request;"
-                  " ask again once they are no longer ignored.", ""]
+        their, them = ("its", "it") if len(others) == 1 else ("their", "them")
+        parts += ["- " + ", ".join(f"`{rel}`" for rel in others) + f": {their} content is not in this pull request,"
+                  f" and only an adoption made again brings it: stop ignoring {them}, close this pull request, or revert"
+                  " its merge on the default branch once it is merged, delete its branch `symphony/adopt` where it is"
+                  " still there, and ask again on the form.", ""]
     return parts
 
 
@@ -1040,7 +1164,9 @@ def codeowners_note(manifest):
 
 def kind_note(manifest):
     """The kind was read from the tree, because the form left it to the run
-    or because there was no form; the other kind is one request away."""
+    or because there was no form; the other kind is one request away, once
+    this adoption is closed, or reverted when it is merged, since the form
+    adopts a repository once."""
     if manifest["mode"] == "new":
         read = ("as a new repository, since its default branch held nothing but what GitHub makes when it"
                 " initializes one (a README, a LICENSE or COPYING, a .gitignore or .gitattributes)")
@@ -1048,18 +1174,47 @@ def kind_note(manifest):
     else:
         read = "as an existing repository, since its default branch holds files of its own"
         other = "the whole template"
+    reverted = "or revert its merge on the default branch once it is merged, since the form adopts a repository once"
     if source_of(manifest) == "installation":
         return (f"No form said which kind to bring: the run read this repository {read}. For {other} instead, close"
-                " this pull request, which is the end of the front door's own offers for this repository, then"
-                f" delete its branch `symphony/adopt` and open the form at {FRONT_DOOR} with the other kind.")
+                f" this pull request, which is the end of the front door's own offers for this repository, {reverted};"
+                f" then delete its branch `symphony/adopt`, where it is still there, and open the form at {FRONT_DOOR}"
+                " with the other kind.")
     return (f"The form left the kind to the run, which read this repository {read}. For {other} instead, close this"
-            f" pull request, delete its branch `symphony/adopt`, and open the form at {FRONT_DOOR} choosing the other"
-            " kind.")
+            f" pull request, {reverted}; then delete its branch `symphony/adopt`, where it is still there, and open the"
+            f" form at {FRONT_DOOR} choosing the other kind.")
+
+
+def off_sentence(manifest):
+    """Nothing is shared, and which of the switch files say so: the one the
+    adoption wrote or kept, the old one beside it, or both."""
+    off = [rel for rel, said in manifest["switches"].items() if said == "off"] or [SWITCH]
+    names = " and ".join(f"`{rel}`" for rel in off)
+    says, where = ("says", "there") if len(off) == 1 else ("say", "in both")
+    return (f"Nothing is shared: {names} {says} `off`, so the metrics workflow, where there is one, writes only that"
+            f" sharing is off. Write `on` {where} to share anonymous aggregates later.")
+
+
+def unwritten_switch_sentence(manifest):
+    """Nothing is shared where no switch is there once the files have
+    landed: the metrics workflow comes only with the switch, since the
+    template's script would read a missing one as on."""
+    if manifest["metrics_in_template"]:
+        workflow = "the metrics workflow comes only with it, so that was not written either"
+    else:
+        workflow = "the template does not carry its metrics workflow yet"
+    return f"Nothing is shared: the metrics switch `{SWITCH}` was not written (above), and {workflow}."
 
 
 def sharing_section(manifest):
+    """What is shared, from what the switches say once the files have
+    landed, which is not always what the form asked: a switch the
+    repository kept, or an opt-out of its own, says off, and one that
+    could not be written leaves the metrics workflow out with it."""
     parts = ["## What is shared", ""]
-    if manifest["metrics"] == "on":
+    if SWITCH not in manifest["switches"]:
+        parts.append(unwritten_switch_sentence(manifest))
+    elif manifest["sharing"] == "on":
         parts.append(f"Sharing of anonymous aggregates is on: `{SWITCH}` says `on`.")
         if manifest["metrics_workflow"]:
             parts.append("Once a day `.github/workflows/metrics.yml` writes METRICS.json to the branch `metrics`:"
@@ -1082,8 +1237,7 @@ def sharing_section(manifest):
         parts.append(f"To turn it off at any time, write `off` in `{SWITCH}` on the default branch, or set the"
                      " repository variable SDLC_METRICS to `off`; uninstalling the App stops it too.")
     else:
-        parts.append(f"Nothing is shared: `{SWITCH}` says `off`, so the metrics workflow, where there is one, writes"
-                     " only that sharing is off. Write `on` there to share anonymous aggregates later.")
+        parts.append(off_sentence(manifest))
     return parts[:2] + [" ".join(parts[2:]), ""]
 
 

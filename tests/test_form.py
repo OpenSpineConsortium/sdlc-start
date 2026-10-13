@@ -233,7 +233,9 @@ class TheWorkflows(unittest.TestCase):
         """Merge for me: the run merges, or arms auto-merge where a ruleset
         requires the check, and says which; the Setup App deletes its own
         installation once the settings are applied and it reached this
-        repository alone, and the pull request's text says so."""
+        repository alone, and the pull request's text says so, and on the
+        form's paths it does so too after a request refused because the
+        repository is adopted already."""
         run = (ROOT / ".github/workflows/adopt-run.yml").read_text(encoding="utf-8")
         merge = run.index("name: Merge the pull request when asked")
         self.assertIn("if: env.REFUSED != 'true' && inputs.merge == 'true'", run[merge:])
@@ -243,7 +245,8 @@ class TheWorkflows(unittest.TestCase):
         self.assertLess(merge, run.index("name: Answer the request and close it"))
         self.assertIn('merged) merged=" It is merged, as you asked." ;;', run)
         uninstall = run.index("name: Uninstall the Setup App when this was its only repository")
-        self.assertIn("if: env.REFUSED != 'true' && env.SETTINGS == 'applied'", run[uninstall:])
+        self.assertIn("if: (env.REFUSED != 'true' && env.SETTINGS == 'applied') || (env.ADOPTED == 'true' && env.SOURCE"
+                      " == 'issue')", run[uninstall:])
         self.assertLess(run.index("name: Revoke the Setup App's token"), uninstall)
         self.assertLess(uninstall, run.index("name: Write the pull request's text"))
         self.assertIn('-X DELETE -H "Authorization: Bearer $jwt" -H "$accept" "https://api.github.com/app/installations/$id"', run)
