@@ -23,7 +23,22 @@ hand:
      GitHub; the topics the repository has stay;
   4. secret scanning, then push protection, which GitHub accepts only
      once scanning is on; where the plan or the visibility offers
-     neither, GitHub's answer is kept and the run goes on.
+     neither, GitHub's answer is kept and the run goes on;
+  5. in mode new, "Allow GitHub Actions to create and approve pull
+     requests", under Workflow permissions: the whole template's weekly
+     protocol update (.github/workflows/protocol.yml) and its "Add a
+     worker" form (.github/workflows/add-worker.yml) open their pull
+     requests with GITHUB_TOKEN, which GitHub allows only with it, and
+     without it answer with an issue or a link. It lets a workflow
+     approve a pull request too, which matters only where a ruleset
+     requires a review: the one this run applies requires none, and
+     crowd mode's, which requires one, comes with the template's
+     scripts/crowd.py setup, which turns the box off again. The
+     protocol alone brings neither workflow, so mode existing leaves the
+     box as it is, since the approvals would then serve nothing of the
+     adoption's and might stand in for a review the repository's own
+     rules require. Where the organization or its enterprise forbids
+     it, GitHub's answer is kept and the run goes on.
 
 The labels are the workflow's, made with the main App's token; the
 template's variables are optional and none is set here; the Claude token
@@ -72,10 +87,13 @@ NOT_INSTALLED = "not-installed"
 FRONT_DOOR_BROKEN = "front-door-broken"
 NOT_REPORTED = "not-reported"
 WHYS = (NOT_SET_UP, NOT_INSTALLED, FRONT_DOOR_BROKEN, NOT_REPORTED)
-# One setting's state.
+# One setting's state. Forbidden is a setting the policy of the
+# repository's organization, or of its enterprise, keeps off, which no
+# repository setting overrides: GitHub answers 409 to it.
 DONE = "done"
 EXISTS = "exists"
 FAILED = "failed"
+FORBIDDEN = "forbidden"
 NOT_TRIED = "not-tried"
 # The settings, in the order they are applied and reported.
 RULESET = "ruleset"
@@ -83,16 +101,28 @@ TOGGLES = "toggles"
 TOPIC = "topic"
 SECRET_SCANNING = "secret_scanning"
 PUSH_PROTECTION = "push_protection"
-SETTINGS = (RULESET, TOGGLES, TOPIC, SECRET_SCANNING, PUSH_PROTECTION)
+ACTIONS_PULL_REQUESTS = "actions_pull_requests"
+SETTINGS = (RULESET, TOGGLES, TOPIC, SECRET_SCANNING, PUSH_PROTECTION, ACTIONS_PULL_REQUESTS)
 # The topic an adopted repository carries, which the template's own
 # scripts/setup-repo.sh adds too.
 TOPIC_NAME = "symphony"
+# What GitHub's answer on the workflow permissions may hold for the default
+# token's permissions, which the PUT sends back as they were read.
+TOKEN_PERMISSIONS = ("read", "write")
+# GitHub's answer when the organization or its enterprise holds the setting.
+POLICY_CONFLICT = 409
 # GitHub's message lands in the pull request, so it is one line and short.
 DETAIL_LENGTH = 300
 
 
 class GitHubError(Exception):
-    """GitHub said no, or could not be reached: one line that says which."""
+    """GitHub said no, or could not be reached: one line that says which,
+    and the HTTP status when there was one, as scripts/sweep.py keeps it,
+    since a 409 tells the owner's policy from any other refusal."""
+
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
 
 
 def error_words(error):
@@ -174,11 +204,11 @@ class GitHub:
         status, data = self.transport(method, f"{self.api}{path}", headers, body)
         if not 200 <= status < 300:
             said = github_message(data)
-            raise GitHubError(f"HTTP {status}" + (f": {said}" if said else ""))
+            raise GitHubError(f"HTTP {status}" + (f": {said}" if said else ""), status)
         try:
             return json.loads(data) if data and data.strip() else {}
         except ValueError:
-            raise GitHubError(f"HTTP {status}: GitHub's answer was not JSON") from None
+            raise GitHubError(f"HTTP {status}: GitHub's answer was not JSON", status) from None
 
 
 # --- the report -------------------------------------------------------------------
@@ -303,6 +333,31 @@ def apply_scanning(github, repo, report):
         record(report, PUSH_PROTECTION, FAILED, str(said))
 
 
+def apply_actions_pull_requests(github, repo, report):
+    """Tick "Allow GitHub Actions to create and approve pull requests".
+    The PUT sets the default token's permissions too, so they go back as
+    GitHub read them and only the box changes; an answer that does not
+    say them is a refusal and no PUT, since a guess could widen the token.
+    A box ticked already is recorded and not written again. A 409 is the
+    policy of the organization or its enterprise, kept apart from other
+    refusals so the pull request can say who may change it, and where."""
+    path = f"/repos/{repo}/actions/permissions/workflow"
+    try:
+        answer = github.call("GET", path)
+        answer = answer if isinstance(answer, dict) else {}
+        if answer.get("can_approve_pull_request_reviews") is True:
+            record(report, ACTIONS_PULL_REQUESTS, DONE, "was on already")
+            return
+        permissions = answer.get("default_workflow_permissions")
+        if permissions not in TOKEN_PERMISSIONS:
+            raise GitHubError("GitHub's answer did not say the workflow permissions")
+        github.call("PUT", path,
+                    {"default_workflow_permissions": permissions, "can_approve_pull_request_reviews": True})
+        record(report, ACTIONS_PULL_REQUESTS, DONE)
+    except GitHubError as said:
+        record(report, ACTIONS_PULL_REQUESTS, FORBIDDEN if said.status == POLICY_CONFLICT else FAILED, str(said))
+
+
 def apply_settings(github, repo, ruleset, mode):
     """Every setting, each on its own: one that fails costs itself and
     nothing else. ruleset is the dict, or the one-line reason it could not
@@ -318,6 +373,11 @@ def apply_settings(github, repo, ruleset, mode):
     apply_toggles(github, repo, report)
     apply_topic(github, repo, report)
     apply_scanning(github, repo, report)
+    # Only the whole template brings the workflows that need the box (5).
+    if mode == "new":
+        apply_actions_pull_requests(github, repo, report)
+    else:
+        record(report, ACTIONS_PULL_REQUESTS, NOT_TRIED, "the protocol alone opens no pull request with GitHub Actions")
     return report
 
 
@@ -330,6 +390,12 @@ LOG_LINES = {
     SECRET_SCANNING: {DONE: "secret scanning: on", FAILED: "secret scanning: not turned on"},
     PUSH_PROTECTION: {DONE: "push protection: on", FAILED: "push protection: not turned on",
                       NOT_TRIED: "push protection: not tried"},
+    # The organization's policy is a refusal like any other here: the log
+    # says whether the box was ticked and nothing of the owner's settings.
+    ACTIONS_PULL_REQUESTS: {DONE: "allow GitHub Actions to create and approve pull requests: on",
+                            FAILED: "allow GitHub Actions to create and approve pull requests: not turned on",
+                            FORBIDDEN: "allow GitHub Actions to create and approve pull requests: not turned on",
+                            NOT_TRIED: "allow GitHub Actions to create and approve pull requests: not tried"},
 }
 
 

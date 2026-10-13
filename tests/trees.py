@@ -68,6 +68,10 @@ TEMPLATE_FILES = {
     "tools/sdlc_protocol/__pycache__/board.cpython-312.pyc": "not a real cache\n",
     "tests/test_template.py": "import unittest\n",
     "scripts/check.sh": "#!/usr/bin/env bash\necho ok\n",
+    # The one call adopt.py reads the setup script for: the template's
+    # script makes it since it ticks the box that lets GitHub Actions open
+    # pull requests, and never made it before.
+    "scripts/setup-repo.sh": "#!/usr/bin/env bash\necho settings actions/permissions/workflow\n",
     ".git/config": "[core]\n\tbare = false\n",
 }
 EXECUTABLE = ("scripts/check.sh",)
@@ -80,6 +84,8 @@ METRICS = {
 # The script of a template from before the breakdown, which a repository
 # adopted from it keeps, since no later change of the template reaches it.
 METRICS_BEFORE_BREAKDOWN = "print('metrics')\n"
+# The setup script of a template from before the box, kept the same way.
+SETUP_SCRIPT_BEFORE_BOX = "#!/usr/bin/env bash\necho settings\n"
 # The library's spec/PROTOCOL.md, which the workflow passes as --protocol-spec.
 SPEC = "# The claim protocol\n\nThe library's own text, with no placeholder.\n"
 LIBRARY = ("tools/VENDORED", "tools/sdlc_protocol/__init__.py", "tools/sdlc_protocol/board.py")

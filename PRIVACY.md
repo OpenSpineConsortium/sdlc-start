@@ -1,6 +1,6 @@
 # Symphony GitHub Apps privacy statement
 
-Version 3, 2026-10-12. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
+Version 4, 2026-10-13. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
 The Symphony browser extension has a statement of its own, at https://openspineconsortium.com/symphony/privacy.html.
 
 Who makes the Apps: Gregory Schwing, trading as OpenSpineConsortium ("the developer"). Questions:
@@ -9,7 +9,7 @@ the contact on https://openspineconsortium.com/symphony/.
 Symphony is two GitHub Apps. **SymphonyBoard** (github.com/apps/symphonyboard) brings the Symphony
 template, or its claim protocol, into a repository by pull request, and afterwards reads one branch
 of that repository once a day for anonymous aggregates. **Symphony Setup** (github.com/apps/symphony-setup)
-applies five settings to a repository for one run and uninstalls itself. Both work only through
+applies up to six settings to a repository for one run and uninstalls itself. Both work only through
 GitHub: nothing of yours goes anywhere but to GitHub's own API, to your own repository and, as
 aggregates, to the developer. This statement says what each App can see, what it writes, what the
 developer receives and keeps, and how to stop any of it.
@@ -33,7 +33,7 @@ statement is written, it is turned off, and the section on the server below appl
 it is turned on. SymphonyBoard never asks for Administration.
 
 Symphony Setup asks for two permissions and nothing else: Administration (read and write), for the
-five settings below, and Metadata (read). It has no webhook and receives no event. It is meant to be
+six settings below, and Metadata (read). It has no webhook and receives no event. It is meant to be
 installed on the one repository being adopted, for the one run, and the run uninstalls it when that
 repository was the only one it reached; otherwise the pull request asks you to uninstall it.
 
@@ -57,8 +57,10 @@ exists, the one word in `.github/symphony-adopt` and `.github/symphony-metrics`,
 the default branch's tree (to decide the kind), a checkout of that branch at depth one (to add the
 files), whether you administer the repository and, when the request came from the sweep below
 rather than from you, the repository's direct collaborators and their permissions, to find an
-administrator. Everything read lives on GitHub's runner for the length of the run and goes with it;
-nothing of it is kept or sent elsewhere.
+administrator. With Symphony Setup installed, the run also reads the repository's rulesets, its
+topics and its workflow permissions for GitHub Actions, to leave what is there as it is. Everything
+read lives on GitHub's runner for the length of the run and goes with it; nothing of it is kept or
+sent elsewhere.
 
 What the run writes to your repository, as the App's bot: the board's labels, one commit on the
 branch `symphony/adopt`, one pull request from it, and, in a repository that held nothing yet, the
@@ -69,9 +71,11 @@ setting, which may name your account's plan; in an organization's new repository
 also writes that login into `.github/CODEOWNERS`. With Symphony Setup installed, the run creates the
 default branch's ruleset, turns on delete-head-branches and auto-merge, adds the topic `symphony` to
 the repository's topics (the sign on the repository's page that it is adopted, which anyone can see
-there and the Symphony browser extension reads from the page; your other topics stay), and turns on
-secret scanning and push protection where your plan and visibility allow it, then revokes the Setup
-App's token and uninstalls the Setup App when the repository was its only one. Unless you chose on the form to review the pull request
+there and the Symphony browser extension reads from the page; your other topics stay), turns on
+secret scanning and push protection where your plan and visibility allow it, and, in a repository
+that takes the whole template, ticks "Allow GitHub Actions to create and approve pull requests" where
+your organization and its enterprise allow it, then revokes the Setup App's token and uninstalls
+the Setup App when the repository was its only one. Unless you chose on the form to review the pull request
 first, the run merges it or arms auto-merge. Everything else lands only
 when you merge. Closing the pull request instead leaves the labels, the branch, the settings, the
 topic and the issue for you to undo. When the run could not open its pull request and nobody was on
@@ -250,6 +254,12 @@ Symphony is for people who administer GitHub repositories. It is not directed at
 A new version of this statement is published at https://openspineconsortium.com/symphony/apps-privacy.html
 and in the front door repository, github.com/OpenSpineConsortium/symphony-start, whose PRIVACY.md is
 this text.
+
+Version 4 adds the sixth setting Symphony Setup applies: in a repository that takes the whole
+template, it ticks "Allow GitHub Actions to create and approve pull requests" where your
+organization and its enterprise allow it. It also names what the run reads to leave your settings as
+they are: the repository's rulesets, its topics and its workflow permissions for GitHub Actions.
+Nothing the developer receives or keeps changed.
 
 Version 3 adds to `METRICS.json` what the work cost, as the section on field metrics describes: the
 tokens Claude used, by kind and by model family, their price at Anthropic's API list prices and the

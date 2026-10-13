@@ -14,16 +14,26 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from trees import (METRICS, METRICS_BEFORE_BREAKDOWN, SPEC, THEIR_FILES, adopt, apply, make_checkout, make_target,
-                   make_template, run, write)
+from trees import (METRICS, METRICS_BEFORE_BREAKDOWN, SETUP_SCRIPT_BEFORE_BOX, SPEC, THEIR_FILES, adopt, apply,
+                   make_checkout, make_target, make_template, run, write)
 
 PRIVATE_LINK = "github.com/OpenSpineConsortium/symphony-template"
 NO_GIT = {rel: text for rel, text in THEIR_FILES.items() if not rel.startswith(".git/")}
 RULES = "https://github.com/octo-org/widget/settings/rules"
 ALL_DONE = {"ruleset": "done", "toggles": "done", "topic": "done", "secret_scanning": "done",
-            "push_protection": "done"}
+            "push_protection": "done", "actions_pull_requests": "done"}
 TOPIC_WHY = ("so the repository page says it is adopted and the Symphony browser extension's button reads Ready for"
              " Symphony")
+# The box that lets the whole template's two workflows open their pull
+# requests with GitHub's own token, what it is for, and what they answer
+# with while it is off.
+ACTIONS = "- Allow GitHub Actions to create and approve pull requests"
+ACTIONS_WHY = ("so `.github/workflows/protocol.yml` opens a pull request for each new release of the protocol, and"
+               " `.github/workflows/add-worker.yml` one for each \"Add a worker\" issue")
+ACTIONS_PAGE = "https://github.com/octo-org/widget/settings/actions"
+MEANWHILE = ("Until it is on, `protocol.yml` brings each new release as an issue whose link opens the pull request in"
+             " one press, and `add-worker.yml` answers each \"Add a worker\" issue with the link that opens its pull"
+             " request.")
 # The pull request's sentence on the counts of parallel work, which is true
 # only of a landed script that counts by setting.
 PARALLEL = "Some of those counts say how the work ran in parallel"
@@ -241,7 +251,9 @@ class Body(unittest.TestCase):
         self.assertIn("- Delete head branches on merge and allow auto-merge: on.", body)
         self.assertIn(f"- The topic `symphony`: set, {TOPIC_WHY}; the topics you had stay.", body)
         self.assertIn("- Secret scanning and push protection: on.", body)
-        self.assertIn("the topic symphony, and secret scanning with push protection)", body)
+        self.assertIn(f"{ACTIONS}: on, {ACTIONS_WHY}.", body)
+        self.assertIn("the topic symphony, secret scanning with push protection, and letting GitHub Actions create and"
+                      " approve pull requests)", body)
         self.assertIn("uninstall it at https://github.com/settings/installations, since it holds Administration", body)
         body = self.body(settings=dict(report(), uninstalled=True))
         self.assertIn("The Setup App uninstalled itself once that was done, this repository being the only one its"
@@ -250,7 +262,8 @@ class Body(unittest.TestCase):
         self.assertIn("2. The GitHub side is set up (Settings above), so `bash scripts/setup-repo.sh` is not needed",
                       body)
         self.assertIn("is done but for GitHub's reading of `.github/CODEOWNERS`", body)
-        self.assertIn("--area AREA`, which turns auto-merge off again, and, after reading", body)
+        self.assertIn(f"--area AREA`, which turns auto-merge and \"{adopt.ACTIONS_LABEL}\" off again, and, after"
+                      " reading", body)
         self.assertNotIn("2. From a clone", body)
         self.assertNotIn("add the name of your own check", body)
         self.assertNotIn("written but not enforced", body)
@@ -295,7 +308,7 @@ class Body(unittest.TestCase):
                       f" accessible). Protect the default branch, and only it, at {RULES}", body)
         self.assertIn("2. For what the Settings above could not do: from a clone", body)
         self.assertNotIn("2. The GitHub side is set up", body)
-        self.assertIn("which turns auto-merge off again", body)
+        self.assertIn(f"which turns auto-merge and \"{adopt.ACTIONS_LABEL}\" off again", body)
         body = self.body(THEIR_FILES, mode="existing",
                          settings=report(mode="existing", states=failed, details={"ruleset": "HTTP 403: no"}))
         self.assertIn(f"3. Protect the default branch, and only it, at {RULES}", body)
@@ -304,7 +317,9 @@ class Body(unittest.TestCase):
         self.assertIn("- Delete head branches on merge and allow auto-merge: not changed (GitHub said: HTTP 403: no);"
                       " tick both under https://github.com/octo-org/widget/settings.", body)
         self.assertIn("2. For what the Settings above could not do", body)
-        self.assertNotIn("which turns auto-merge off again", body)
+        self.assertIn(f"--area AREA`, which turns \"{adopt.ACTIONS_LABEL}\" off again, and", body)
+        self.assertNotIn("auto-merge off again", body)
+        self.assertNotIn("auto-merge and", body)
 
     def test_the_topic_there_already_or_refused(self):
         body = self.body(settings=report(details={"topic": "was there already"}))
@@ -318,7 +333,8 @@ class Body(unittest.TestCase):
                       f" on https://github.com/octo-org/widget, {TOPIC_WHY}.", body)
         self.assertIn("was used in this run for the settings", body)
         self.assertIn("2. For what the Settings above could not do", body)
-        self.assertIn("delete-on-merge and auto-merge, the topic symphony, secret scanning, the labels", body)
+        self.assertIn("delete-on-merge and auto-merge, the topic symphony, secret scanning, letting GitHub Actions"
+                      " create and approve pull requests, the labels", body)
         # A report that says nothing of the topic, from an older setup.py,
         # reads as not set, with no words of GitHub's.
         without = {key: state for key, state in ALL_DONE.items() if key != "topic"}
@@ -344,6 +360,129 @@ class Body(unittest.TestCase):
         self.assertIn("- Secret scanning: on. Push protection: not turned on (GitHub said: HTTP 422: No.); turn it on"
                       " under https://github.com/octo-org/widget/settings/security_analysis", body)
         self.assertIn("is done but for secret scanning or push protection, above", body)
+
+    def test_actions_on_or_on_already_says_what_the_box_is_for(self):
+        """The box lets the template's two workflows open their pull
+        requests; ticked by this run, the line says too that a workflow may
+        now approve one."""
+        body = self.body(settings=report())
+        self.assertIn(f"{ACTIONS}: on, {ACTIONS_WHY}. It lets a workflow approve a pull request too, which matters only"
+                      " where a ruleset requires a review.", body)
+        self.assertIn("applied in this run", body)
+        self.assertNotIn("Until it is on", body)
+        self.assertIn("is done but for GitHub's reading of `.github/CODEOWNERS`", body)
+        body = self.body(settings=report(details={"actions_pull_requests": "was on already"}))
+        self.assertIn(f"{ACTIONS}: was on already, {ACTIONS_WHY}.", body)
+        self.assertNotIn("It lets a workflow approve", body)
+        self.assertIn("applied in this run", body)
+
+    def test_actions_forbidden_by_policy_says_who_allows_it_and_where(self):
+        """GitHub's 409 is the policy of the organization or its
+        enterprise, which no setting of the repository's changes: the line
+        names who allows the box and where, then where to tick it, and what
+        the two workflows answer with meanwhile. The rest of the GitHub
+        side is set up, so the setup script is not sent for. A personal
+        account's repository has no organization, so its line keeps to
+        GitHub's words and the repository's own page, and names no
+        enterprise as the cause."""
+        states = dict(ALL_DONE, actions_pull_requests="forbidden")
+        body = self.body(settings=report(states=states, details={"actions_pull_requests": "HTTP 409: Conflict"}),
+                         owner_type="Organization")
+        self.assertIn(f"{ACTIONS}: not turned on, since the policy of the organization, or of its enterprise,"
+                      " forbids it (GitHub said: HTTP 409: Conflict). An owner of the organization allows it under"
+                      " Workflow permissions at https://github.com/organizations/octo-org/settings/actions, or, where"
+                      " the enterprise forbids it there, an owner of the enterprise under the enterprise's Policies,"
+                      f" Actions; then tick it under Workflow permissions at {ACTIONS_PAGE}. {MEANWHILE}", body)
+        self.assertIn("was used in this run for the settings", body)
+        self.assertIn("2. The GitHub side is set up", body)
+        self.assertIn("is done but for letting GitHub Actions create and approve pull requests, above, and GitHub's"
+                      " reading of `.github/CODEOWNERS`", body)
+        body = self.body(settings=report(states=states, details={"actions_pull_requests": "HTTP 409"}))
+        self.assertIn(f"{ACTIONS}: not turned on, since GitHub answered that a policy above this repository holds it"
+                      f" (GitHub said: HTTP 409); tick it under Workflow permissions at {ACTIONS_PAGE} once that page"
+                      f" allows it. {MEANWHILE}", body)
+        self.assertNotIn("/organizations/octo-org/settings/actions", body)
+        self.assertNotIn("enterprise", body)
+
+    def test_actions_refused_otherwise_is_ticked_by_hand(self):
+        states = dict(ALL_DONE, actions_pull_requests="failed")
+        body = self.body(settings=report(states=states, details={"actions_pull_requests": "HTTP 403: no"}))
+        self.assertIn(f"{ACTIONS}: not turned on (GitHub said: HTTP 403: no); tick it under Workflow permissions at"
+                      f" {ACTIONS_PAGE}. {MEANWHILE}", body)
+        self.assertNotIn("forbids it", body)
+        self.assertIn("was used in this run for the settings", body)
+        self.assertIn("is done but for letting GitHub Actions create and approve pull requests, above, and", body)
+        # With push protection refused too, both are named once, in one list.
+        states = dict(states, push_protection="failed")
+        body = self.body(settings=report(states=states, details={"push_protection": "HTTP 422: No."}))
+        self.assertIn("is done but for secret scanning or push protection and letting GitHub Actions create and approve"
+                      " pull requests, above, and GitHub's reading of `.github/CODEOWNERS`", body)
+
+    def test_the_box_is_the_setup_scripts_only_where_the_script_that_landed_ticks_it(self):
+        """The run copies the template's default branch, whose setup script
+        may be from before the box: the pull request then names the box
+        nowhere among that script's steps, nor among what the setup issue's
+        first box leaves, while the Setup App's own line for it stands."""
+        write(self.template, adopt.SETUP_SCRIPT, SETUP_SCRIPT_BEFORE_BOX)
+        body = self.body(settings=report(outcome="not-installed"))
+        self.assertIn("so this run could not apply the settings `scripts/setup-repo.sh` applies (the default branch's"
+                      " ruleset, delete-on-merge and auto-merge, the topic symphony, and secret scanning with push"
+                      " protection). Step 2 of the next steps applies them by hand", body)
+        self.assertIn("the topic symphony, secret scanning, the labels and a check of `.github/CODEOWNERS`.", body)
+        self.assertNotIn("GitHub Actions", body)
+        states = dict(ALL_DONE, actions_pull_requests="forbidden")
+        body = self.body(settings=report(states=states, details={"actions_pull_requests": "HTTP 409"}))
+        self.assertIn("was used in this run for the settings `scripts/setup-repo.sh` applies (the default branch's"
+                      " ruleset, delete-on-merge and auto-merge, the topic symphony, and secret scanning with push"
+                      " protection); what it could do", body)
+        self.assertIn(f"{ACTIONS}: not turned on, since GitHub answered", body)
+        self.assertIn("is done but for GitHub's reading of `.github/CODEOWNERS`", body)
+        body = self.body(settings=report(states=dict(ALL_DONE, ruleset="failed"), details={"ruleset": "HTTP 403: no"}))
+        self.assertIn("2. For what the Settings above could not do: from a clone", body)
+        self.assertIn("the topic symphony, secret scanning, the labels", body)
+        self.assertIn(f"{ACTIONS}: on, {ACTIONS_WHY}.", body)
+
+    def test_crowd_mode_turns_off_again_what_the_settings_say_is_on(self):
+        """crowd.py setup turns auto-merge off, and the box too, so the step
+        names each one the Settings above say is on, and nothing when
+        neither is."""
+        box = f"\"{adopt.ACTIONS_LABEL}\""
+        forbidden, refused = dict(ALL_DONE, actions_pull_requests="forbidden"), dict(ALL_DONE, toggles="failed")
+        cases = ((ALL_DONE, f"--area AREA`, which turns auto-merge and {box} off again, and"),
+                 (forbidden, "--area AREA`, which turns auto-merge off again, and"),
+                 (refused, f"--area AREA`, which turns {box} off again, and"),
+                 (dict(refused, actions_pull_requests="failed"), "--area AREA` and, after reading"))
+        for states, said in cases:
+            with self.subTest(states=states):
+                self.assertIn(said, self.body(settings=report(states=states)))
+
+    def test_an_older_report_without_the_actions_box_still_renders(self):
+        """A report from before the box was a setting has no word on it: in
+        mode new it reads as not turned on, with no words of GitHub's, and
+        the schema it carries is still the one the body reads."""
+        without = {key: state for key, state in ALL_DONE.items() if key != "actions_pull_requests"}
+        body = self.body(settings=report(states=without))
+        self.assertIn(f"{ACTIONS}: not turned on; tick it under Workflow permissions at {ACTIONS_PAGE}. {MEANWHILE}",
+                      body)
+        self.assertNotIn("GitHub said", body)
+        self.assertIn("was used in this run for the settings", body)
+        self.assertIn("- Secret scanning and push protection: on.", body)
+        self.assertEqual(adopt.SETUP_SCHEMA, "sdlc-setup/1")
+
+    def test_existing_mode_names_no_actions_box(self):
+        """The protocol alone brings neither workflow, and scripts/setup.py
+        does not try the box there: the section names it nowhere and counts
+        the settings applied without it."""
+        details = {"actions_pull_requests": "the protocol alone opens no pull request with GitHub Actions"}
+        settings = report(mode="existing", required_check=False, details=details,
+                          states=dict(ALL_DONE, actions_pull_requests="not-tried"))
+        body = self.body(THEIR_FILES, mode="existing", settings=settings)
+        self.assertIn("applied in this run the settings the template's setup script applies (the default branch's"
+                      " ruleset, delete-on-merge and auto-merge, the topic symphony, and secret scanning with push"
+                      " protection);", body)
+        self.assertNotIn("GitHub Actions", body)
+        body = self.body(THEIR_FILES, mode="existing", settings=report(outcome="not-installed", mode="existing"))
+        self.assertNotIn("GitHub Actions", body)
 
     def test_the_setup_app_not_installed(self):
         body = self.body(settings=report(outcome="not-installed"))
@@ -388,13 +527,19 @@ class Body(unittest.TestCase):
         body = self.body(settings=report(outcome="not-reported"), owner_type="Organization")
         self.assertIn("## Settings\n\nThe step that applies the settings stopped before it could say what it did. If"
                       " you installed the Setup App, some of the settings `scripts/setup-repo.sh` applies", body)
-        self.assertIn("check https://github.com/octo-org/widget/settings/rules and"
-                      " https://github.com/octo-org/widget/settings. Step 2 of the next steps applies them by hand",
-                      body)
+        # Mode new's box, which the step may have ticked, is on a page of
+        # its own; mode existing does not try it.
+        self.assertIn("check https://github.com/octo-org/widget/settings/rules,"
+                      f" https://github.com/octo-org/widget/settings and {ACTIONS_PAGE}. Step 2 of the next steps"
+                      " applies them by hand", body)
         self.assertIn("That was the Setup App's one job: uninstall it at"
                       " https://github.com/organizations/octo-org/settings/installations", body)
         self.assertIn("2. From a clone", body)
         self.assertNotIn("which turns auto-merge off again", body)
+        body = self.body(THEIR_FILES, mode="existing", settings=report(outcome="not-reported", mode="existing"))
+        self.assertIn("check https://github.com/octo-org/widget/settings/rules and"
+                      " https://github.com/octo-org/widget/settings. Step 3 of the next steps protects", body)
+        self.assertNotIn(ACTIONS_PAGE, body)
 
     def test_a_request_that_was_an_installation(self):
         """The sweep's path: the opening says the installation was the
