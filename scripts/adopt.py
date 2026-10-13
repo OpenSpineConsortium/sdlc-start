@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Adopt the Symphony template into a repository, from the form or
-from the App's installation.
+"""Adopt the Symphony template into a repository, from the form.
 
 .github/workflows/adopt.yml runs parse; .github/workflows/adopt-run.yml,
-which it calls and which the sweep starts by dispatch, runs name, apply,
-body and labels, one subcommand per step:
+which it calls, runs name, apply, body and labels, one subcommand per
+step:
 
   parse  reads the issue the adoption form made and prints its fields as
          KEY=value lines for $GITHUB_OUTPUT. Anyone can open an issue, so
@@ -43,8 +42,9 @@ body and labels, one subcommand per step:
          the repository's settings the Setup App applied in the same run,
          or why none was, and the next steps follow from that.
   labels prints the board's labels, read from the template's own list.
-  name   checks a repository's name the way parse does, for the sweep's
-         path, which brings no form, and prints it as KEY=value lines.
+  name   checks a repository's name the way parse does, once the run
+         holds it, typed on the form or resolved from the ids the form
+         carried, and prints it as KEY=value lines.
 
 LICENSE is never copied: licensing the person's project is their
 decision. A link in the template is never followed and a path of the
@@ -191,9 +191,6 @@ MARKETPLACE = {
 PLUGIN = "symphony@symphony-marketplace"
 
 FRONT_DOOR = "https://github.com/OpenSpineConsortium/symphony-start"
-# How a request arrived: the form's issue, or the App's installation, which
-# the sweep found (.github/workflows/sweep.yml).
-SOURCES = ("issue", "installation")
 
 # The Setup App: a second App, holding Administration, which the person
 # installs on the repository for the one run that applies the template's
@@ -326,8 +323,9 @@ def parse_form(body):
 
 
 def command_name(options):
-    """The sweep's path: the repository's name checked as the form's would
-    be, and printed in parse's shape for the workflow's environment."""
+    """The repository's name, typed on the form or resolved from the ids
+    it carried, checked as parse checks the form's and printed in parse's
+    shape for the workflow's environment."""
     try:
         owner, name = parse_repository(options.repository)
     except FormError as problem:
@@ -1157,7 +1155,6 @@ def new_manifest(options, links, protocol_text, plan):
         "default_branch": options.default_branch,
         "owner_type": options.owner_type,
         "creator": options.creator,
-        "source": options.source,
         "kind_read": options.kind_read,
         # The run made the repository's first commit, the README GitHub's
         # own "Add a README file" makes, since it had none.
@@ -1260,10 +1257,6 @@ def title(manifest):
     return "Take up the Symphony claim protocol"
 
 
-def source_of(manifest):
-    return manifest.get("source", "issue")
-
-
 def opening(manifest):
     repo = manifest["repository"]
     if manifest.get("began"):
@@ -1272,13 +1265,8 @@ def opening(manifest):
                  " request goes into. Nothing else changes until you merge it.")
     else:
         until = " Nothing changes until you merge it."
-    if source_of(manifest) == "installation":
-        asked = (f"The Symphony App opened it because an administrator of {repo} installed the App on it, or"
-                 f" on all of its owner's repositories, which the front door ({FRONT_DOOR}) takes as the request."
-                 f"{until}")
-    else:
-        asked = (f"The Symphony App opened it because an administrator of {repo} asked for it on the adoption"
-                 f" form ({FRONT_DOOR}).{until}")
+    asked = (f"The Symphony App opened it because an administrator of {repo} asked for it on the adoption"
+             f" form ({FRONT_DOOR}).{until}")
     if manifest["mode"] == "new":
         return (f"This pull request brings the whole Symphony template into {repo}, as \"Use this template\""
                 f" would have made it, with this repository's names filled in. {asked}")
@@ -1404,28 +1392,18 @@ def notes_section(manifest):
 
 def codeowners_note(manifest):
     """Who `.github/CODEOWNERS` names in an organization's new copy, and
-    why: the form's author; on the sweep's path the first administrator
-    the run found, or the organization itself when it found none, which
-    GitHub cannot ask for review."""
+    why: the form's author."""
     creator = manifest["creator"]
-    owner = manifest["repository"].split("/")[0]
     because = ("because GitHub asks a user or a team for review and never an organization; change it by pull"
                " request when someone else should review (docs/setup/github.md, section 7).")
-    if source_of(manifest) != "installation":
-        who = f"`{creator}`, who asked for this pull request,"
-    elif creator == owner:
-        who = (f"`{creator}`, the organization itself, since the run found no administrator among the repository's"
-               " direct collaborators; GitHub marks that line as one it cannot resolve, so name a person or a team,")
-    else:
-        who = f"`{creator}`, the first administrator the run found among the repository's direct collaborators,"
-    return f"`.github/CODEOWNERS` names {who} {because}"
+    return f"`.github/CODEOWNERS` names `{creator}`, who asked for this pull request, {because}"
 
 
 def kind_note(manifest):
-    """The kind was read from the tree, because the form left it to the run
-    or because there was no form; the other kind is one request away, once
-    this adoption is closed, or reverted when it is merged, since the form
-    adopts a repository once."""
+    """The kind was read from the tree, because the form left it to the
+    run; the other kind is one request away, once this adoption is closed,
+    or reverted when it is merged, since the form adopts a repository
+    once."""
     if manifest["mode"] == "new":
         read = ("as a new repository, since its default branch held nothing but what GitHub makes when it"
                 " initializes one (a README, a LICENSE or COPYING, a .gitignore or .gitattributes)")
@@ -1434,11 +1412,6 @@ def kind_note(manifest):
         read = "as an existing repository, since its default branch holds files of its own"
         other = "the whole template"
     reverted = "or revert its merge on the default branch once it is merged, since the form adopts a repository once"
-    if source_of(manifest) == "installation":
-        return (f"No form said which kind to bring: the run read this repository {read}. For {other} instead, close"
-                f" this pull request, which is the end of the front door's own offers for this repository, {reverted};"
-                f" then delete its branch `symphony/adopt`, where it is still there, and open the form at {FRONT_DOOR}"
-                " with the other kind.")
     return (f"The form left the kind to the run, which read this repository {read}. For {other} instead, close this"
             f" pull request, {reverted}; then delete its branch `symphony/adopt`, where it is still there, and open the"
             f" form at {FRONT_DOOR} choosing the other kind.")
@@ -1970,8 +1943,6 @@ def parse_args(argv):
     applying.add_argument("--default-branch", required=True, help="the target's default branch")
     applying.add_argument("--mode", required=True, choices=("new", "existing"))
     applying.add_argument("--metrics", required=True, choices=("on", "off"))
-    applying.add_argument("--source", default="issue", choices=SOURCES,
-                          help="how the request arrived: the form's issue (default) or the App's installation")
     applying.add_argument("--kind-read", action="store_true",
                           help="the mode was read from the repository's tree, not chosen on a form")
     applying.add_argument("--began", action="store_true",

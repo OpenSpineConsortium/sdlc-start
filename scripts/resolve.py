@@ -10,7 +10,7 @@ form; a Setup App installation stands for the App's installation on the
 same account, narrowed to the repositories the Setup App was given.
 
 Of the installation's repositories, those with no adoption yet (the
-sweep's own rules in sweep.py: a commit, no branch symphony/adopt, no
+rules in sweep.py: a commit, no branch symphony/adopt, no
 docs/agents/PROTOCOL.md, no opt-out; or no commit at all, an empty
 repository, whose first commit the run makes) that the issue's author
 administers are the ones to adopt, newest first, at most LIMIT of them:

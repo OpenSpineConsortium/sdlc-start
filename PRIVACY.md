@@ -1,6 +1,6 @@
 # Symphony GitHub Apps privacy statement
 
-Version 6, 2026-10-13. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
+Version 7, 2026-10-13. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
 The Symphony browser extension has a statement of its own, at https://openspineconsortium.com/symphony/privacy.html.
 
 Who makes the Apps: Gregory Schwing, trading as OpenSpineConsortium ("the developer"). Questions:
@@ -60,12 +60,12 @@ whether a branch `symphony/adopt` exists and has a pull request, whether `docs/a
 exists, the one word in `.github/symphony-adopt` and `.github/symphony-metrics` and in each under
 its name before the rename to Symphony, `.github/sdlc-adopt` and `.github/sdlc-metrics`, the full
 listing of the default branch's tree (to decide the kind), a checkout of that branch at depth one (to add the
-files), whether you administer the repository and, when the request came from the sweep below
-rather than from you, the repository's direct collaborators and their permissions, to find an
-administrator. With Symphony Setup installed, the run also reads the repository's rulesets, its
+files) and whether you administer the repository. With Symphony Setup installed, the run also reads the repository's rulesets, its
 topics and its workflow permissions for GitHub Actions, to leave what is there as it is. When the
-form carries an installation's number and no name, the run asks the same of each repository both Apps
-reach, and whether you administer it, to choose the newest one with no adoption yet. Everything
+form carries an installation's number and no name, the run reads that installation's record and,
+when the number is Symphony Setup's, SymphonyBoard's own list of its installations, to find the one
+on the same account; then it asks the same of each repository both Apps reach, and whether you
+administer it, to choose the newest one with no adoption yet. Everything
 read lives on GitHub's runner for the length of the run and goes with it; nothing of it is kept or
 sent elsewhere.
 
@@ -74,7 +74,7 @@ branch `symphony/adopt`, one pull request from it, and, in a repository that hel
 issue "Set up this project". In a repository with no commit at all, the run first makes one, as
 GitHub's own "Add a README file" does: a `README.md` holding the repository's name, on the default
 branch, which the pull request goes into; the whole template's README takes its place when you merge. The pull request's body lists every file it brings, names the GitHub
-login of the person who asked (or, from the sweep, the administrator it found), says whether the
+login of the person who asked, says whether the
 repository is private and, where the Setup App was installed, quotes GitHub's own answer for each
 setting, which may name your account's plan; in an organization's new repository, the pull request
 also writes that login into `.github/CODEOWNERS`. With Symphony Setup installed, the run creates the
@@ -87,26 +87,11 @@ your organization and its enterprise allow it, then revokes the Setup App's toke
 the Setup App when the repository was its only one. Unless you chose on the form to review the pull request
 first, the run merges it or arms auto-merge. Everything else lands only
 when you merge. Closing the pull request instead leaves the labels, the README the run made in a
-repository that had no commit, the branch, the settings, the topic and the issue for you to undo. When the run could not open its pull request and nobody was on
-the form to tell, the App opens one issue in your repository saying why.
+repository that had no commit, the branch, the settings, the topic and the issue for you to undo.
 
 The adoption's files come from the developer's private template repository, read with a token that
 holds Contents read on that one repository and is revoked right after the checkout; only the files
 in the pull request reach you.
-
-## The sweep
-
-Every ten minutes a workflow on the front door lists every installation of SymphonyBoard and, for
-each installation older than half an hour whose owner has accepted every permission the pull
-request needs, the repositories it reaches, and reads from each what the adoption reads to decide
-whether to offer one: the default branch, the branches `symphony/adopt` and `sdlc/adopt`,
-`docs/agents/PROTOCOL.md`, `.github/symphony-adopt` and `.github/sdlc-adopt`, closed pull requests
-from `symphony/adopt`, and the App's own open issues. The sweep writes nothing itself; it starts the
-adoption run above, by ids only, for a repository with no adoption yet. A repository that was
-adopted, declined once (its pull request from `symphony/adopt` closed without a merge) or opted out
-(`off` in `.github/symphony-adopt`) is passed over, but it is still read every ten minutes to learn
-that; only uninstalling the App stops the reading. The sweep's own public log carries counts and
-nothing else. The developer's own organization's repositories are never swept.
 
 ## Field metrics: what the developer receives
 
@@ -202,7 +187,7 @@ api.github.com and nowhere else.
 Sharing is on unless you turn it off: the adoption writes `on` into `.github/symphony-metrics`
 unless you ticked the form's box "Do not share anonymous aggregates" or a switch of the repository's
 own says `off` already, under that name or under `.github/sdlc-metrics`, its name before the rename
-to Symphony, which the adoption never turns on; the sweep's adoptions write `on` on the same terms.
+to Symphony, which the adoption never turns on.
 Where the switch cannot be written, because the repository ignores it or something of its own
 stands where it goes, nothing the adoption brings shares: the protocol alone then brings no metrics
 workflow, and the whole template's reads what stands in the switch's place as off. To turn
@@ -249,13 +234,13 @@ and no third party. SymphonyBoard never holds Administration on anyone's reposit
 holds it for one run and only where you installed it. They read your repository's code only as the
 adoption above says (the tree listing, a one-commit checkout of the default branch, and the few
 files named), never to keep or send it. They never write to a repository but the adoption's branch,
-pull request, labels, issue and settings, each of them yours to undo, the README that begins a
-repository with no commit, and the one issue that says a pull request could not be opened. They never read a Claude credential, and nothing here runs on
+pull request, labels, issue and settings, each of them yours to undo, and the README that begins a
+repository with no commit. They never read a Claude credential, and nothing here runs on
 anyone's Claude account but the one a project's own maintainer chooses to run the judge with.
 
 ## Uninstalling
 
-Uninstalling SymphonyBoard stops the sweep and the collector from reading anything of yours and
+Uninstalling SymphonyBoard stops the collector from reading anything of yours and
 undoes nothing in your repository: the files, labels, branch, settings and issues the adoption made
 stay yours. Uninstalling Symphony Setup is what you do once the pull request is open, when the run
 did not do it for you.
@@ -269,6 +254,16 @@ Symphony is for people who administer GitHub repositories. It is not directed at
 A new version of this statement is published at https://openspineconsortium.com/symphony/apps-privacy.html
 and in the front door repository, github.com/OpenSpineConsortium/symphony-start, whose PRIVACY.md is
 this text.
+
+Version 7 removes the sweep: no workflow on the front door lists SymphonyBoard's installations
+every ten minutes and reads each repository they reach to decide whether to offer an adoption,
+since installing the App alone is no longer a request, the install sending you to the form, where
+the press is; the run reads an installation only when a form carries its number, as the adoption
+section now says, and the collector's daily read of the branch `metrics` is as it was. With the
+sweep go two things the run did on its path only: it no longer reads a repository's direct
+collaborators to find an administrator, since every request names the person who asked, and it no
+longer opens an issue in your repository when it could not open its pull request, since the form's
+own issue is answered instead. Nothing the developer receives or keeps changed.
 
 Version 6 says that the run, asked for a repository with no commit yet, first makes its first
 commit, as GitHub's own "Add a README file" does: a `README.md` holding the repository's name, on the

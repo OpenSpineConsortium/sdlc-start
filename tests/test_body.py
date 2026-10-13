@@ -718,38 +718,6 @@ class Body(unittest.TestCase):
                       " https://github.com/octo-org/widget/settings. Step 3 of the next steps protects", body)
         self.assertNotIn(ACTIONS_PAGE, body)
 
-    def test_a_request_that_was_an_installation(self):
-        """The sweep's path: the opening says the installation was the
-        request, a note says how the kind was read and how to get the other,
-        and CODEOWNERS' note says who the run picked."""
-        body = self.body(source="installation", owner_type="Organization", creator="octo-org", kind_read=True)
-        self.assertIn("because an administrator of octo-org/widget installed the App on it, or on all of its owner's"
-                      " repositories, which the front door (https://github.com/OpenSpineConsortium/symphony-start) takes as"
-                      " the request.", body)
-        self.assertNotIn("asked for it on the adoption form", body)
-        self.assertIn("No form said which kind to bring: the run read this repository as a new repository, since its"
-                      " default branch held nothing but what GitHub makes when it initializes one (a README, a LICENSE"
-                      " or COPYING, a .gitignore or .gitattributes)", body)
-        self.assertIn("For the protocol alone instead, close this pull request, which is the end of the front door's"
-                      " own offers for this repository, or revert its merge on the default branch once it is merged,"
-                      " since the form adopts a repository once; then delete its branch `symphony/adopt`, where it is"
-                      " still there, and open the form at https://github.com/OpenSpineConsortium/symphony-start with"
-                      " the other kind.", body)
-        self.assertIn("`.github/CODEOWNERS` names `octo-org`, the organization itself, since the run found no"
-                      " administrator among the repository's direct collaborators; GitHub marks that line as one it"
-                      " cannot resolve, so name a person or a team, because GitHub asks", body)
-        body = self.body(source="installation", owner_type="Organization", creator="mona", kind_read=True)
-        self.assertIn("`.github/CODEOWNERS` names `mona`, the first administrator the run found among the"
-                      " repository's direct collaborators, because GitHub asks", body)
-        body = self.body(THEIR_FILES, mode="existing", source="installation", kind_read=True)
-        self.assertIn("read this repository as an existing repository, since its default branch holds files of its"
-                      " own. For the whole template instead", body)
-        self.assertNotIn("CODEOWNERS", body)
-        body = self.body(owner_type="Organization")
-        self.assertIn("`.github/CODEOWNERS` names `mona`, who asked for this pull request, because GitHub", body)
-        self.assertNotIn("No form said", body)
-        self.assertNotIn("left the kind to the run", body)
-
     def test_a_repository_the_run_began_says_so(self):
         """A repository with no commit got its first from the run, the README
         GitHub's own "Add a README file" makes, before the pull request
@@ -767,8 +735,7 @@ class Body(unittest.TestCase):
         """The one-button form: the kind was read from the tree, and the
         note says so in the form's own terms, with the other kind one form
         away once this pull request is closed, or its merge reverted, since
-        the form adopts a repository once, and no word about the sweep's
-        offers."""
+        the form adopts a repository once."""
         body = self.body(kind_read=True)
         self.assertIn("asked for it on the adoption form", body)
         self.assertIn("The form left the kind to the run, which read this repository as a new repository, since its"
@@ -777,8 +744,8 @@ class Body(unittest.TestCase):
                       " branch once it is merged, since the form adopts a repository once; then delete its branch"
                       " `symphony/adopt`, where it is still there, and open the form at"
                       " https://github.com/OpenSpineConsortium/symphony-start choosing the other kind.", body)
-        self.assertNotIn("No form said", body)
-        self.assertNotIn("end of the front door's own offers", body)
+        self.assertIn("`.github/CODEOWNERS` names `mona`, who asked for this pull request, because GitHub",
+                      self.body(owner_type="Organization", kind_read=True))
         body = self.body(THEIR_FILES, mode="existing", kind_read=True)
         self.assertIn("which read this repository as an existing repository, since its default branch holds files"
                       " of its own. For the whole template instead", body)

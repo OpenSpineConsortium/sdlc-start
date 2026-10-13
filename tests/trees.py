@@ -268,7 +268,7 @@ def run(argv, stdin=None):
 
 
 def apply(template, target, manifest, mode="new", metrics="on", owner_type="User", repo=REPO, protocol_spec=None,
-          source=None, creator=CREATOR, kind_read=False, began=False):
+          creator=CREATOR, kind_read=False, began=False):
     """Run apply; (exit code, the manifest or None, stderr)."""
     argv = [
         "apply", "--template", str(template), "--target", str(target), "--repo", repo,
@@ -277,8 +277,6 @@ def apply(template, target, manifest, mode="new", metrics="on", owner_type="User
     ]
     if protocol_spec is not None:
         argv += ["--protocol-spec", str(protocol_spec)]
-    if source is not None:
-        argv += ["--source", source]
     if kind_read:
         argv.append("--kind-read")
     if began:
