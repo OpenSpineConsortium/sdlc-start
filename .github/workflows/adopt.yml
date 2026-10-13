@@ -48,7 +48,8 @@ name: Adopt
 # App's own JWT, or the Setup App's when the number is that App's, since
 # both send the person to the form (scripts/resolve.py): the installation's
 # token lists the repositories it reaches, and the newest one with no
-# adoption yet (by the sweep's rules, asked by id) that the author
+# adoption yet (by the sweep's rules, asked by id, or with no commit at
+# all, whose first commit the run makes) that the author
 # administers and the Setup App is installed on is adopted, one per
 # press, since one press that reached every repository of an account
 # merged the adoption into eight on 2026-10-11; the person presses Create

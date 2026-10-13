@@ -1159,6 +1159,9 @@ def new_manifest(options, links, protocol_text, plan):
         "creator": options.creator,
         "source": options.source,
         "kind_read": options.kind_read,
+        # The run made the repository's first commit, the README GitHub's
+        # own "Add a README file" makes, since it had none.
+        "began": options.began,
         # The workflow, whether its script counts by setting, what each
         # switch file says and so what the workflow will read in them, and
         # whether the setup script ticks the box are known once the files
@@ -1263,13 +1266,19 @@ def source_of(manifest):
 
 def opening(manifest):
     repo = manifest["repository"]
+    if manifest.get("began"):
+        until = (" The repository had no commit, so the run first made one, as GitHub's own \"Add a README"
+                 " file\" does: a README.md holding the repository's name, on the default branch, which this pull"
+                 " request goes into. Nothing else changes until you merge it.")
+    else:
+        until = " Nothing changes until you merge it."
     if source_of(manifest) == "installation":
         asked = (f"The Symphony App opened it because an administrator of {repo} installed the App on it, or"
                  f" on all of its owner's repositories, which the front door ({FRONT_DOOR}) takes as the request."
-                 " Nothing changes until you merge it.")
+                 f"{until}")
     else:
         asked = (f"The Symphony App opened it because an administrator of {repo} asked for it on the adoption"
-                 f" form ({FRONT_DOOR}). Nothing changes until you merge it.")
+                 f" form ({FRONT_DOOR}).{until}")
     if manifest["mode"] == "new":
         return (f"This pull request brings the whole Symphony template into {repo}, as \"Use this template\""
                 f" would have made it, with this repository's names filled in. {asked}")
@@ -1965,6 +1974,8 @@ def parse_args(argv):
                           help="how the request arrived: the form's issue (default) or the App's installation")
     applying.add_argument("--kind-read", action="store_true",
                           help="the mode was read from the repository's tree, not chosen on a form")
+    applying.add_argument("--began", action="store_true",
+                          help="the run made the repository's first commit, a README, since it had none")
     applying.add_argument("--manifest", required=True, help="where to write the manifest, outside the target")
     applying.add_argument("--protocol-spec", help="symphony-protocol's spec/PROTOCOL.md, which mode existing writes as"
                           " docs/agents/PROTOCOL.md; without it, the template's own page")

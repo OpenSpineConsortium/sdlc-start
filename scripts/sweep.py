@@ -42,11 +42,7 @@ A repository is left out, each reason counted, when
               gh issue list --json body writes them), so the form's run
               has it;
   no commit   its default branch is not there yet, so there is nothing to
-              branch from, and whoever made it empty may be about to push
-              a history of their own, which a first commit of the App's
-              would turn away: the sweep waits for one, while the form's
-              run makes it for a repository the person named or chose for
-              the Setup App (unadopted);
+              branch from; the README says a README is enough;
   offered     the branch symphony/adopt is there: an adoption was offered, and
               its pull request is open, merged, or closed on purpose;
   adopted     docs/agents/PROTOCOL.md is on its default branch, by the form
@@ -421,9 +417,9 @@ def unadopted(github, repositories):
     """The repositories among these with no adoption yet: those with a
     commit and no branch symphony/adopt, no docs/agents/PROTOCOL.md and no
     opt-out, and those with no commit at all, whose first commit the form's
-    run makes (the sweep leaves those alone, NO_COMMIT). The form's
-    workflow asks this of an installation that reaches several, to find
-    the one the person meant; a GitHubError is the caller's."""
+    run makes. The form's workflow asks this of an installation that
+    reaches several, to find the one the person meant; a GitHubError is the
+    caller's."""
     free = []
     for repository in repositories:
         if repository.get("archived"):
@@ -483,10 +479,10 @@ def has_commit(github, repository):
 
 def is_empty(github, repository):
     """Whether the repository has no branch at all, so no commit: an empty
-    one, which the form's run begins, as against a default branch missing
-    beside branches of the repository's own, which it refuses. GitHub
-    answers an empty repository's list with none or with 409, "Git
-    Repository is empty"; both say so."""
+    one, whose first commit the form's run makes, as against a default
+    branch missing beside branches of the repository's own, which it
+    refuses. GitHub answers an empty repository's list with none or with
+    409, "Git Repository is empty"; both say so."""
     try:
         return not github.listed(f"{repo_path(repository)}/branches?per_page=1")
     except GitHubError as refusal:

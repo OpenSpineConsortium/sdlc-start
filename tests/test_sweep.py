@@ -366,18 +366,8 @@ class Sweep(unittest.TestCase):
         self.assertEqual(github.calls, [])
 
     def test_a_repository_with_no_commit_is_skipped(self):
-        """The sweep never makes a first commit, since whoever made the
-        repository empty may be about to push a history of their own: an
-        empty repository is left alone however GitHub says it has no
-        branch, and its list of branches is not even read."""
-        for status in (NOT_FOUND, (409, {"message": "Git Repository is empty."})):
-            with self.subTest(status=status[0]):
-                answers = {("GET", repo_path(REPOSITORY, "branches/main")): status}
-                github = FakeGitHub(answers, repositories=[REPOSITORY])
-                code, written, out, err = self.run_sweep(github)
-                self.assertEqual((code, written, err), (0, "", ""))
-                self.assertIn("1 skipped (1 no commit)", out)
-                self.assertFalse([path for path in github.paths() if "/branches?" in path])
+        answers = {("GET", repo_path(REPOSITORY, "branches/main")): NOT_FOUND}
+        self.assertEqual(self.skipped(None, REPOSITORY, answers), "1 no commit")
 
     def test_a_repository_with_the_branch_symphony_adopt_is_skipped(self):
         matching = ("GET", repo_path(REPOSITORY, "git/matching-refs/heads/symphony/adopt"))

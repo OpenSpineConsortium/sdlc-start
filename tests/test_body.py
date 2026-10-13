@@ -750,6 +750,19 @@ class Body(unittest.TestCase):
         self.assertNotIn("No form said", body)
         self.assertNotIn("left the kind to the run", body)
 
+    def test_a_repository_the_run_began_says_so(self):
+        """A repository with no commit got its first from the run, the README
+        GitHub's own "Add a README file" makes, before the pull request
+        opened: the text says so where it says what changes before the
+        merge, and only then."""
+        body = self.body(kind_read=True, began=True)
+        self.assertIn("asked for it on the adoption form (https://github.com/OpenSpineConsortium/symphony-start)."
+                      " The repository had no commit, so the run first made one, as GitHub's own \"Add a README"
+                      " file\" does: a README.md holding the repository's name, on the default branch, which this"
+                      " pull request goes into. Nothing else changes until you merge it.", body)
+        self.assertNotIn("Nothing changes until you merge it.", body)
+        self.assertIn("Nothing changes until you merge it.", self.body(kind_read=True))
+
     def test_a_form_that_left_the_kind_to_the_run(self):
         """The one-button form: the kind was read from the tree, and the
         note says so in the form's own terms, with the other kind one form
