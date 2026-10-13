@@ -24,10 +24,12 @@ name: Adopt
 # afterwards. Installing the Setup App on the repository is the
 # person's consent to those settings, so a named
 # repository without it is refused with its install link, which brings
-# the person back to the form with the repository filled in, and an
-# installation's request takes only a repository the Setup App reaches
-# too. The sweep (sweep.yml) is the exception: installing the App alone
-# is its request, and it adopts without the Setup App.
+# the person back to the form with the repository filled in, unless it
+# is adopted already, which is the answer then, since the run would
+# refuse it anyway; and an installation's request takes only a
+# repository the Setup App reaches too. The sweep (sweep.yml) is the
+# exception: installing the App alone is its request, and it adopts
+# without the Setup App.
 #
 # Anyone can open an issue here, so everything the issue says is data: the
 # body reaches scripts/adopt.py parse through env:, never through an
@@ -53,7 +55,10 @@ name: Adopt
 # again for the next. None, a number neither App knows, an author who
 # administers none and a Setup App on none get one answer at one moment,
 # and no name is read in this job, so nothing here can be masked and
-# nothing printed can differ: a guessed number learns nothing. GitHub's own
+# nothing printed can differ: a guessed number learns nothing. Where the
+# Setup App is missing from a named repository whose administrator asked,
+# one more token, for that repository alone with contents read, asks
+# whether it is adopted already. GitHub's own
 # token, which may write only this repository's issues, posts every
 # answer. A refusal (scripts/refuse.sh) comments, closes the issue as not
 # planned and ends the run green; anything else that fails comments with
@@ -280,17 +285,42 @@ jobs:
           repositories: symphony-start
           permission-metadata: read
 
+      # Only where the Setup App is missing from the named repository and
+      # works: the App's token for that one repository, with contents
+      # read, to ask scripts/adopted.py whether it is adopted already, as
+      # the run asks before anything else. An adopted repository is then
+      # told so at once, instead of being sent to install the Setup App,
+      # which holds Administration, for a request the run would refuse.
+      # Its administrator asked, by the check above, and the name is
+      # public already, typed on this issue; the token is revoked when the
+      # job ends.
+      - uses: actions/create-github-app-token@v1
+        id: contents-token
+        if: env.REFUSED != 'true' && steps.form.outputs.repository != '' && env.SETUP_APP == 'present' && steps.setup-token.outcome == 'failure' && steps.setup-probe.outcome == 'success'
+        continue-on-error: true
+        with:
+          app-id: ${{ vars.SDLC_APP_ID }}
+          private-key: ${{ secrets.SDLC_APP_PRIVATE_KEY }}
+          owner: ${{ steps.form.outputs.owner }}
+          repositories: ${{ steps.form.outputs.name }}
+          permission-contents: read
+
       # The refusal's install link preselects the account and the
       # repository by their ids and carries the name as state, which
       # GitHub returns to the Setup URL, so the install brings the person
       # back to the form with the repository filled in. The ids are read
       # on the account token, which the step above showed reaches the
-      # repository; the name is public already, typed on this issue.
+      # repository; the name is public already, typed on this issue. A
+      # repository adopted already gets the run's own answer instead; a
+      # question GitHub does not answer leaves that to the run, which asks
+      # again once the Setup App is there.
       - name: Check that the Setup App is installed on the repository
         if: env.REFUSED != 'true' && steps.form.outputs.repository != '' && env.SETUP_APP == 'present'
         env:
           SETUP_OUTCOME: ${{ steps.setup-token.outcome }}
           PROBE_OUTCOME: ${{ steps.setup-probe.outcome }}
+          CONTENTS_OUTCOME: ${{ steps.contents-token.outcome }}
+          CONTENTS_TOKEN: ${{ steps.contents-token.outputs.token }}
           GH_TOKEN: ${{ steps.account-token.outputs.token }}
           TARGET: ${{ steps.form.outputs.repository }}
           ISSUE_TOKEN: ${{ github.token }}
@@ -303,6 +333,14 @@ jobs:
           if [ "$PROBE_OUTCOME" != success ]; then
             bash start/scripts/refuse.sh --keep-open "Nothing was done yet: this front door's Setup App is not working (its id or private key here is wrong, or GitHub did not answer), which is for the owner of this repository to put right; the run is $RUN. This issue stays open, and its run can be started again once that is done."
             exit 1
+          fi
+          if [ "$CONTENTS_OUTCOME" = success ]; then
+            adopted=0
+            GH_TOKEN="$CONTENTS_TOKEN" python3 start/scripts/adopted.py "$TARGET" 2> "$RUNNER_TEMP/adopted-said" || adopted=$?
+            if [ "$adopted" = 3 ]; then
+              bash start/scripts/refuse.sh "$(python3 start/scripts/adopted.py --answer)"
+              exit 0
+            fi
           fi
           OWNER_ID="$(gh api "repos/$TARGET" --jq .owner.id)"
           REPOSITORY_ID="$(gh api "repos/$TARGET" --jq .id)"
@@ -365,7 +403,14 @@ jobs:
     secrets: inherit
 
   # One answer for the installation's repositories, naming none: how many
-  # pull requests are open, and whether every run finished.
+  # pull requests are open, and whether every run finished. A run that
+  # refused its repository (scripts/refuse.sh: no commit, a branch
+  # symphony/adopt there already, the protocol's text that cannot be
+  # written, a push turned away) has answered the issue already, with why,
+  # and closed it as not planned, and ends green; so an issue no longer
+  # open is left as it is, whoever closed it, since these words would say
+  # a pull request is open where none was opened. One press is one
+  # repository, so that refusal is the request's whole answer.
   answer:
     needs: [request, adopt_each]
     if: always() && needs.request.result == 'success' && needs.request.outputs.refused != 'true' && needs.request.outputs.repository_ids != ''
@@ -381,6 +426,11 @@ jobs:
     steps:
       - name: Answer the request and close it
         run: |
+          state="$(gh issue view "$ISSUE" --repo "$GITHUB_REPOSITORY" --json state --jq .state)"
+          if [ "$state" != OPEN ]; then
+            echo "the request was answered and closed already; nothing more to say"
+            exit 0
+          fi
           if [ "$COUNT" = 1 ]; then
             opened="the pull request is open in your repository"
           else

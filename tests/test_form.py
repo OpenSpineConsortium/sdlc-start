@@ -138,6 +138,20 @@ class TheForm(unittest.TestCase):
         self.assertIn("blank_issues_enabled: false\n", config)
 
 
+class ThePrivacyStatement(unittest.TestCase):
+    def test_its_version_is_the_newest_change_it_names(self):
+        """The site renders PRIVACY.md at the address the Apps' descriptions
+        link, and each version says under Changes what it changed, the
+        newest first: the version the statement opens with is that newest
+        one, so a change noted there raises the number with it."""
+        privacy = (ROOT / "PRIVACY.md").read_text(encoding="utf-8")
+        opened = re.match(r"# .+\n\nVersion (\d+), \d{4}-\d{2}-\d{2}\. This text is also at ", privacy)
+        self.assertTrue(opened)
+        changes = privacy[privacy.index("\n## Changes\n"):]
+        noted = [int(number) for number in re.findall(r"^Version (\d+) (?:says|adds)\b", changes, re.MULTILINE)]
+        self.assertEqual(noted, list(range(int(opened.group(1)), 1, -1)))
+
+
 class TheWorkflows(unittest.TestCase):
     def test_no_expression_inside_a_run_step(self):
         for workflow in WORKFLOWS:
@@ -233,7 +247,9 @@ class TheWorkflows(unittest.TestCase):
         """Merge for me: the run merges, or arms auto-merge where a ruleset
         requires the check, and says which; the Setup App deletes its own
         installation once the settings are applied and it reached this
-        repository alone, and the pull request's text says so."""
+        repository alone, and the pull request's text says so, and on the
+        form's paths it does so too after a request refused because the
+        repository is adopted already."""
         run = (ROOT / ".github/workflows/adopt-run.yml").read_text(encoding="utf-8")
         merge = run.index("name: Merge the pull request when asked")
         self.assertIn("if: env.REFUSED != 'true' && inputs.merge == 'true'", run[merge:])
@@ -243,7 +259,8 @@ class TheWorkflows(unittest.TestCase):
         self.assertLess(merge, run.index("name: Answer the request and close it"))
         self.assertIn('merged) merged=" It is merged, as you asked." ;;', run)
         uninstall = run.index("name: Uninstall the Setup App when this was its only repository")
-        self.assertIn("if: env.REFUSED != 'true' && env.SETTINGS == 'applied'", run[uninstall:])
+        self.assertIn("if: (env.REFUSED != 'true' && env.SETTINGS == 'applied') || (env.ADOPTED == 'true' && env.SOURCE"
+                      " == 'issue')", run[uninstall:])
         self.assertLess(run.index("name: Revoke the Setup App's token"), uninstall)
         self.assertLess(uninstall, run.index("name: Write the pull request's text"))
         self.assertIn('-X DELETE -H "Authorization: Bearer $jwt" -H "$accept" "https://api.github.com/app/installations/$id"', run)

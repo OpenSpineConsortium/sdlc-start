@@ -59,11 +59,15 @@ class Body(unittest.TestCase):
         self.template = make_template(self.root / "template")
         self.manifest = self.root / "manifest.json"
 
-    def body(self, files=None, ignore=None, settings=None, **options):
+    def body(self, files=None, ignore=None, settings=None, links=None, **options):
+        """The pull request's text for a target holding files, and links
+        (path -> what it leads to) beside them."""
         if ignore is None:
             target = make_target(self.root / "target", files)
         else:
             target = make_checkout(self.root / "target", files, ignore)
+        for rel, leads_to in (links or {}).items():
+            (target / rel).symlink_to(leads_to)
         code, manifest, err = apply(self.template, target, self.manifest, **options)
         self.assertEqual(code, 0, err)
         argv = ["body", "--manifest", str(self.manifest)]
@@ -192,18 +196,24 @@ class Body(unittest.TestCase):
     def test_an_ignored_switch_is_never_said_to_hold_the_forms_word(self):
         """The switch the form's choice goes to is ignored, so it is not in the
         pull request, and the metrics workflow, which would read its absence
-        as on, stays out with it; the body says so, and never that the
-        switch says off."""
+        as on, stays out with it, whichever word the form gave; the body says
+        so, and never that the switch says off or on."""
         make_template(self.template, metrics=True)
-        body = self.body(NO_GIT, ignore="*metrics\n", mode="existing", metrics="off")
-        self.assertIn("- `.github/workflows/metrics.yml`, `tools/economics.py`, `tools/metrics.py` and"
-                      " `tools/usage.py`: `.github/symphony-metrics` is ignored by this repository, and the metrics"
-                      " workflow and the scripts it runs come only with the metrics switch, which says whether they"
-                      " share", body)
-        self.assertIn("## What is shared\n\nNothing is computed or shared today: `.github/symphony-metrics` was not"
-                      " written (above), and this pull request brings no metrics workflow to read it.\n", body)
-        self.assertNotIn("says `off`", body)
-        self.assertIn("Never target `board`, which the workflows force-push.", body)
+        for metrics in ("off", "on"):
+            with self.subTest(metrics=metrics):
+                shutil.rmtree(self.root / "target", ignore_errors=True)
+                body = self.body(NO_GIT, ignore="*metrics\n", mode="existing", metrics=metrics)
+                self.assertIn("- `.github/workflows/metrics.yml`, `tools/economics.py`, `tools/metrics.py` and"
+                              " `tools/usage.py`: `.github/symphony-metrics` is ignored by this repository, and the"
+                              " metrics workflow and the scripts it runs come only with the metrics switch, which says"
+                              " whether they share", body)
+                self.assertIn("## What is shared\n\nNothing is computed or shared today: `.github/symphony-metrics` was"
+                              " not written (above), and this pull request brings no metrics workflow to read it.\n",
+                              body)
+                self.assertNotIn("says `off`", body)
+                self.assertNotIn("says `on`", body)
+                self.assertNotIn("Sharing of anonymous aggregates is on", body)
+                self.assertIn("Never target `board`, which the workflows force-push.", body)
 
     def test_an_ignored_switch_beside_a_metrics_workflow_there_already_is_said_to_read_as_on(self):
         make_template(self.template, metrics=True)
@@ -234,6 +244,42 @@ class Body(unittest.TestCase):
                       " place is read as `off`, so the metrics workflow", body)
         self.assertNotIn("Sharing of anonymous aggregates is on", body)
 
+    def test_an_old_opt_out_beside_what_stands_in_the_switchs_place_names_both(self):
+        """Something of the repository's own stands where the switch goes,
+        which the metrics workflow reads as off, and the switch under its
+        old name says off: the body names both, so that writing on where it
+        says turns sharing on, not the old switch alone."""
+        make_template(self.template, metrics=True)
+        body = self.body({"README.md": "# widget\n", ".github/symphony-metrics/notes.md": "their notes\n",
+                          ".github/sdlc-metrics": "off\n"})
+        self.assertIn("Nothing is shared: `.github/sdlc-metrics` says `off`, and `.github/symphony-metrics` was not"
+                      " written (above), and what stands in its place is read as `off`, so the metrics workflow", body)
+        self.assertIn("Write `on` in both to share", body)
+        self.assertNotIn("Write `on` there", body)
+
+    def test_a_kept_switch_that_is_a_link_to_nothing_is_said_to_read_as_missing(self):
+        """The metrics workflow meets a missing file through a link to
+        nothing, so a kept switch that is one shares unless the old switch
+        says off, and the body says why; an old switch that is one says
+        nothing beside a kept switch saying on."""
+        make_template(self.template, metrics=True)
+        body = self.body(THEIR_FILES, links={".github/symphony-metrics": "gone"}, mode="existing")
+        self.assertIn("Sharing of anonymous aggregates is on: `.github/symphony-metrics`, which this repository had"
+                      " already and keeps, is a link to nothing, which the metrics workflow reads as a missing switch,"
+                      " and a missing switch is read as `on`. Once a day", body)
+        self.assertNotIn("`None`", body)
+        shutil.rmtree(self.root / "target")
+        body = self.body(dict(THEIR_FILES, **{".github/sdlc-metrics": "off\n"}),
+                         links={".github/symphony-metrics": "gone"}, mode="existing")
+        self.assertIn("Nothing is shared: `.github/sdlc-metrics` says `off`, so the metrics workflow", body)
+        self.assertIn("Write `on` there to share", body)
+        shutil.rmtree(self.root / "target")
+        body = self.body(dict(THEIR_FILES, **{".github/symphony-metrics": "on\n"}),
+                         links={".github/sdlc-metrics": "gone"}, mode="existing")
+        self.assertIn("Sharing of anonymous aggregates is on: `.github/symphony-metrics`, which this repository had"
+                      " already and keeps, is read as `on`.", body)
+        self.assertNotIn("Nothing is shared", body)
+
     def test_a_workflow_written_without_a_script_it_runs_is_said_not_to_run(self):
         make_template(self.template, metrics=True)
         body = self.body({"README.md": "# widget\n", "tools/usage.py/notes.md": "their folder\n"})
@@ -256,14 +302,28 @@ class Body(unittest.TestCase):
         self.assertNotIn(zero, self.body())
 
     def test_ignored_files_get_what_to_do_instead(self):
+        """The form adopts a repository once, so the note gives the steps by
+        hand and never sends the person back to it after the merge."""
         body = self.body({"README.md": "# widget\n"}, ignore=".claude/\nCLAUDE.md\n", mode="existing")
         self.assertIn("- `CLAUDE.md` and `.claude/settings.json`: " + adopt.IGNORED_WHY, body)
         self.assertIn("Files this repository ignores were not written", body)
+        self.assertIn("the form adopts a repository once, so asking there again after the merge is refused. What to"
+                      " do instead:", body)
+        self.assertNotIn("Stop ignoring them and ask again on the form", body)
         self.assertIn("add this section to the `CLAUDE.md` each session reads", body)
         self.assertIn("```markdown\n## How work is claimed\n", body)
         self.assertIn("claude plugin marketplace add OpenSpineConsortium/symphony-marketplace", body)
         self.assertIn('"symphony@symphony-marketplace": true', body)
         self.assertNotIn("gains the section", body)
+
+    def test_ignored_files_with_no_way_by_hand_come_only_with_an_adoption_made_again(self):
+        body = self.body(NO_GIT, ignore="tools/\n", mode="existing")
+        self.assertIn("- `tools/VENDORED`, `tools/board.py`, `tools/sdlc_protocol/__init__.py`,"
+                      " `tools/sdlc_protocol/board.py`: their content is not in this pull request, and only an adoption"
+                      " made again brings it: stop ignoring them, close this pull request, or revert its merge on the"
+                      " default branch once it is merged, delete its branch `symphony/adopt` where it is still there,"
+                      " and ask again on the form.", body)
+        self.assertNotIn("ask again once they are no longer ignored", body)
 
     def test_invalid_settings_get_the_keys_to_add_by_hand(self):
         body = self.body({".claude/settings.json": "{"}, mode="existing")
@@ -310,6 +370,27 @@ class Body(unittest.TestCase):
     def test_sharing_off(self):
         body = self.body(metrics="off")
         self.assertIn("Nothing is shared", body)
+        self.assertNotIn("Sharing of anonymous aggregates is on", body)
+
+    def test_an_old_opt_out_is_what_the_body_says_whatever_the_form_left(self):
+        """A repository adopted before the rename says off in
+        .github/sdlc-metrics: the form's default leaves the new switch off
+        too, and the body says nothing is shared, naming both files, never
+        that sharing is on."""
+        body = self.body(dict(NO_GIT, **{".github/sdlc-metrics": "off\n"}), mode="existing", kind_read=True)
+        self.assertIn("Nothing is shared: `.github/symphony-metrics` and `.github/sdlc-metrics` say `off`", body)
+        self.assertIn("Write `on` in both to share", body)
+        self.assertIn("`.github/sdlc-metrics`, the switch under its name before the rename to Symphony, says `off`, so"
+                      " `.github/symphony-metrics` says `off` too, though the form left sharing on", body)
+        self.assertNotIn("Sharing of anonymous aggregates is on", body)
+
+    def test_a_kept_switch_that_says_off_is_never_called_on(self):
+        """The note says the kept switch says off; the section on sharing
+        says the same, not what the form asked."""
+        body = self.body(dict(NO_GIT, **{".github/symphony-metrics": "off\n"}), mode="existing")
+        self.assertIn(".github/symphony-metrics was there already and says `off`, where the form asked for `on`", body)
+        self.assertIn("Nothing is shared: `.github/symphony-metrics`, which this repository had already and keeps, is"
+                      " read as `off`, so the metrics workflow", body)
         self.assertNotIn("Sharing of anonymous aggregates is on", body)
 
     def test_the_title_per_mode(self):
@@ -650,8 +731,10 @@ class Body(unittest.TestCase):
                       " default branch held nothing but what GitHub makes when it initializes one (a README, a LICENSE"
                       " or COPYING, a .gitignore or .gitattributes)", body)
         self.assertIn("For the protocol alone instead, close this pull request, which is the end of the front door's"
-                      " own offers for this repository, then delete its branch `symphony/adopt` and open the form at"
-                      " https://github.com/OpenSpineConsortium/symphony-start with the other kind.", body)
+                      " own offers for this repository, or revert its merge on the default branch once it is merged,"
+                      " since the form adopts a repository once; then delete its branch `symphony/adopt`, where it is"
+                      " still there, and open the form at https://github.com/OpenSpineConsortium/symphony-start with"
+                      " the other kind.", body)
         self.assertIn("`.github/CODEOWNERS` names `octo-org`, the organization itself, since the run found no"
                       " administrator among the repository's direct collaborators; GitHub marks that line as one it"
                       " cannot resolve, so name a person or a team, because GitHub asks", body)
@@ -670,14 +753,17 @@ class Body(unittest.TestCase):
     def test_a_form_that_left_the_kind_to_the_run(self):
         """The one-button form: the kind was read from the tree, and the
         note says so in the form's own terms, with the other kind one form
-        away and no word about the sweep's offers."""
+        away once this pull request is closed, or its merge reverted, since
+        the form adopts a repository once, and no word about the sweep's
+        offers."""
         body = self.body(kind_read=True)
         self.assertIn("asked for it on the adoption form", body)
         self.assertIn("The form left the kind to the run, which read this repository as a new repository, since its"
                       " default branch held nothing but what GitHub makes when it initializes one", body)
-        self.assertIn("For the protocol alone instead, close this pull request, delete its branch `symphony/adopt`, and"
-                      " open the form at https://github.com/OpenSpineConsortium/symphony-start choosing the other kind.",
-                      body)
+        self.assertIn("For the protocol alone instead, close this pull request, or revert its merge on the default"
+                      " branch once it is merged, since the form adopts a repository once; then delete its branch"
+                      " `symphony/adopt`, where it is still there, and open the form at"
+                      " https://github.com/OpenSpineConsortium/symphony-start choosing the other kind.", body)
         self.assertNotIn("No form said", body)
         self.assertNotIn("end of the front door's own offers", body)
         body = self.body(THEIR_FILES, mode="existing", kind_read=True)
