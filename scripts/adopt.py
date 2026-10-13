@@ -174,8 +174,20 @@ SETUP_APP = "Symphony Setup"
 SETUP_SCHEMA = "sdlc-setup/1"
 SETUP_OUTCOMES = ("applied", "not-set-up", "not-installed", "front-door-broken", "not-reported")
 SETUP_SCRIPT = "scripts/setup-repo.sh"
-THE_SETTINGS = ("the default branch's ruleset, delete-on-merge and auto-merge, the topic symphony, and secret"
-                " scanning with push protection")
+THE_SETTINGS = ("the default branch's ruleset", "delete-on-merge and auto-merge", "the topic symphony",
+                "secret scanning with push protection")
+# Mode new adds the box under Workflow permissions that lets the whole
+# template's workflows open their pull requests with GitHub's own token;
+# the protocol alone brings none of them, so scripts/setup.py leaves an
+# existing repository's box as it is.
+ACTIONS_SETTING = "letting GitHub Actions create and approve pull requests"
+ACTIONS_LABEL = "Allow GitHub Actions to create and approve pull requests"
+# The box's API path, which the template's scripts/setup-repo.sh calls since
+# it ticks the box too, and never called before. The run copies the
+# template's default branch and a repository keeps the script it was
+# adopted with, so the pull request names the box among the script's steps
+# only where the script that landed calls it.
+ACTIONS_PATH = b"actions/permissions/workflow"
 
 
 class FormError(Exception):
@@ -800,10 +812,11 @@ def new_manifest(options, links, protocol_text, plan):
         "creator": options.creator,
         "source": options.source,
         "kind_read": options.kind_read,
-        # The workflow and whether its script counts by setting are known
-        # once the files have landed.
+        # The workflow, whether its script counts by setting and whether the
+        # setup script ticks the box are known once the files have landed.
         "metrics_workflow": False,
         "metrics_breakdown": False,
+        "setup_script_ticks_box": False,
         "metrics_in_template": all(rel in plan for rel in METRICS_FILES),
         "protocol_text": protocol_text,
         "added": [], "replaced": [], "kept": [], "merged": [],
@@ -840,6 +853,7 @@ def adopt(options):
     landed = manifest["added"] + manifest["replaced"]
     manifest["metrics_workflow"] = all(rel in landed for rel in METRICS_FILES)
     manifest["metrics_breakdown"] = manifest["metrics_workflow"] and BREAKDOWN_KEY in plan[METRICS_SCRIPT][0]
+    manifest["setup_script_ticks_box"] = SETUP_SCRIPT in landed and ACTIONS_PATH in plan[SETUP_SCRIPT][0]
     for key in ("added", "replaced", "kept", "merged"):
         manifest[key].sort()
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -1088,18 +1102,27 @@ def github_said(report, key):
 
 def settings_done(report):
     """Whether the Setup App left nothing of the settings to do by hand:
-    secret scanning aside, which the plan or the visibility may refuse and
-    which the section says so."""
+    secret scanning aside, which the plan or the visibility may refuse, and
+    the box for GitHub Actions' pull requests, which the organization or
+    its enterprise may forbid; the section says so of each."""
     return (report is not None and report["outcome"] == "applied"
             and setting_state(report, "ruleset") in ("done", "exists") and setting_state(report, "toggles") == "done"
             and setting_state(report, "topic") == "done")
 
 
-def every_setting_done(report):
-    """Whether every setting, secret scanning included, is done or was
-    there already, so the section may say the settings were applied."""
-    return settings_done(report) and all(setting_state(report, key) == "done"
-                                         for key in ("secret_scanning", "push_protection"))
+def every_setting_done(manifest, report):
+    """Whether every setting of this mode, secret scanning included, is
+    done or was there already, so the section may say the settings were
+    applied."""
+    keys = ("secret_scanning", "push_protection") + (("actions_pull_requests",) if manifest["mode"] == "new" else ())
+    return settings_done(report) and all(setting_state(report, key) == "done" for key in keys)
+
+
+def the_settings(manifest):
+    """What the setup script applies, as one phrase: the box among them only
+    where the script that landed, which mode new alone brings, ticks it."""
+    names = [*THE_SETTINGS, ACTIONS_SETTING] if manifest["setup_script_ticks_box"] else list(THE_SETTINGS)
+    return ", ".join(names[:-1]) + ", and " + names[-1]
 
 
 def installations_page(manifest):
@@ -1171,6 +1194,47 @@ def scanning_line(manifest, report):
             f" on under {security} if the plan offers it.")
 
 
+def policy_words(manifest, report, tick):
+    """Why GitHub's 409 keeps the box off, and what to do. GitHub gives the
+    409 as the policy of the repository's owning organization, so an
+    organization's repository names its owners, on its own settings page,
+    or, where its enterprise forbids the box there too, the enterprise's;
+    a personal account's repository has no organization, so it gets
+    GitHub's words and its own settings page, and no cause GitHub did not
+    give."""
+    said = github_said(report, "actions_pull_requests")
+    if manifest["owner_type"] != "Organization":
+        return f"GitHub answered that a policy above this repository holds it{said}; {tick} once that page allows it."
+    org = manifest["repository"].split("/")[0]
+    return (f"the policy of the organization, or of its enterprise, forbids it{said}. An owner of the organization"
+            f" allows it under Workflow permissions at https://github.com/organizations/{org}/settings/actions, or,"
+            " where the enterprise forbids it there, an owner of the enterprise under the enterprise's Policies,"
+            f" Actions; then {tick}.")
+
+
+def actions_line(manifest, report):
+    """The box under Workflow permissions, in mode new, which lets the
+    template's two workflows that open pull requests with GitHub's own
+    token do so: on, and what for; else why not, who may allow it, and
+    what the two workflows answer with meanwhile, an issue or a link."""
+    key = "actions_pull_requests"
+    why = ("so `.github/workflows/protocol.yml` opens a pull request for each new release of the protocol, and"
+           " `.github/workflows/add-worker.yml` one for each \"Add a worker\" issue")
+    if setting_state(report, key) == "done":
+        was = report["settings"][key].get("detail")
+        if was:
+            return f"- {ACTIONS_LABEL}: {was}, {why}."
+        return (f"- {ACTIONS_LABEL}: on, {why}. It lets a workflow approve a pull request too, which matters only where"
+                " a ruleset requires a review.")
+    tick = f"tick it under Workflow permissions at https://github.com/{manifest['repository']}/settings/actions"
+    meanwhile = ("Until it is on, `protocol.yml` brings each new release as an issue whose link opens the pull request"
+                 " in one press, and `add-worker.yml` answers each \"Add a worker\" issue with the link that opens its"
+                 " pull request.")
+    if setting_state(report, key) == "forbidden":
+        return f"- {ACTIONS_LABEL}: not turned on, since {policy_words(manifest, report, tick)} {meanwhile}"
+    return f"- {ACTIONS_LABEL}: not turned on{github_said(report, key)}; {tick}. {meanwhile}"
+
+
 def by_hand_pointer(manifest):
     """Where the settings are applied by hand: in mode new the setup script
     the pull request brings, in mode existing the settings pages, since the
@@ -1202,15 +1266,17 @@ def settings_section(manifest, report):
     person knows what is set before they merge and what is left by hand."""
     parts = ["## Settings", ""]
     named = f"`{SETUP_SCRIPT}`" if manifest["mode"] == "new" else "the template's setup script"
-    what = f"the settings {named} applies ({THE_SETTINGS})"
+    what = f"the settings {named} applies ({the_settings(manifest)})"
     outcome = report["outcome"]
     if outcome == "applied":
-        did = "applied in this run" if every_setting_done(report) else "was used in this run for"
+        did = "applied in this run" if every_setting_done(manifest, report) else "was used in this run for"
         parts.append(f"The {SETUP_APP} App, which you installed on this repository, {did} {what}; what it could do"
                      " does not wait for the merge, and closing this pull request leaves it as it is:")
         parts.append("")
         parts += [ruleset_line(manifest, report), toggles_line(manifest, report), topic_line(manifest, report),
                   scanning_line(manifest, report)]
+        if manifest["mode"] == "new":
+            parts.append(actions_line(manifest, report))
         parts.append("")
         parts.append(uninstalled_sentence(manifest) if report.get("uninstalled") else uninstall_sentence(manifest))
     elif outcome == "not-installed":
@@ -1228,10 +1294,13 @@ def settings_section(manifest, report):
                      f" {installations_page(manifest)}, since nothing used it.")
     elif outcome == "not-reported":
         repo = manifest["repository"]
+        # Mode new's box is under Actions, a page of its own.
+        pages = [f"https://github.com/{repo}/settings/rules", f"https://github.com/{repo}/settings"]
+        if manifest["mode"] == "new":
+            pages.append(f"https://github.com/{repo}/settings/actions")
         parts.append("The step that applies the settings stopped before it could say what it did. If you installed"
-                     f" the Setup App, some of {what} may be applied: check https://github.com/{repo}/settings/rules"
-                     f" and https://github.com/{repo}/settings. {by_hand_pointer(manifest)}"
-                     f" {uninstall_sentence(manifest)}")
+                     f" the Setup App, some of {what} may be applied: check {', '.join(pages[:-1])} and {pages[-1]}."
+                     f" {by_hand_pointer(manifest)} {uninstall_sentence(manifest)}")
     else:
         parts.append(f"None of the settings was changed: this front door has no Setup App yet, so {what} are applied"
                      f" by hand. {by_hand_pointer(manifest)}")
@@ -1239,19 +1308,39 @@ def settings_section(manifest, report):
     return parts
 
 
+def crowd_note(report):
+    """What crowd.py setup turns off again, which is worth a word only where
+    the Settings above say it is on: auto-merge, which this run turned on
+    with delete-on-merge, and the box for GitHub Actions' pull requests."""
+    turned_on = [words for key, words in (("toggles", "auto-merge"), ("actions_pull_requests", f"\"{ACTIONS_LABEL}\""))
+                 if setting_state(report, key) == "done"]
+    return f", which turns {' and '.join(turned_on)} off again," if turned_on else ""
+
+
 def next_steps_new(manifest, report=None):
     """The steps after the merge; with the settings applied by the Setup
-    App, the setup script is not needed and the step says what is left."""
+    App, the setup script is not needed and the step says what is left.
+    The box is named among the script's steps, and among what the setup
+    issue's first box leaves, only where the script that landed ticks it:
+    the issue comes from the same copy of the template, whose change that
+    taught the script the box named it in that first box too."""
     repo = manifest["repository"]
+    ticks = manifest["setup_script_ticks_box"]
+    box = f" {ACTIONS_SETTING}," if ticks else ""
     by_hand = ("2. From a clone, on your own computer, with the GitHub CLI signed in as an administrator, run"
                " `bash scripts/setup-repo.sh`: the default branch's rules, delete-on-merge and auto-merge, the topic"
-               " symphony, secret scanning, the labels and a check of `.github/CODEOWNERS`."
+               f" symphony, secret scanning,{box} the labels and a check of `.github/CODEOWNERS`."
                " `docs/setup/owner-checklist.md` has the rest: the Claude GitHub App and its token, the Projects and"
                " the routines.")
     if settings_done(report):
         left = "GitHub's reading of `.github/CODEOWNERS`, which the file's own page shows after the merge"
-        if setting_state(report, "push_protection") != "done":
-            left = "secret scanning or push protection, above, and " + left
+        # What the plan, or the organization's policy, may refuse, and the
+        # Settings above say.
+        unset = ["secret scanning or push protection"] if setting_state(report, "push_protection") != "done" else []
+        if ticks and setting_state(report, "actions_pull_requests") != "done":
+            unset.append(ACTIONS_SETTING)
+        if unset:
+            left = " and ".join(unset) + ", above, and " + left
         setup = ("2. The GitHub side is set up (Settings above), so `bash scripts/setup-repo.sh` is not needed;"
                  " running it anyway changes nothing twice. `docs/setup/owner-checklist.md` has the rest: the Claude"
                  " GitHub App and its token, the Projects and the routines. The first box of the issue \"Set up this"
@@ -1260,15 +1349,12 @@ def next_steps_new(manifest, report=None):
         setup = by_hand.replace("2. From a clone", "2. For what the Settings above could not do: from a clone", 1)
     else:
         setup = by_hand
-    # crowd.py setup turns auto-merge off, which is worth a word only once
-    # this run turned it on.
-    crowd_note = ", which turns auto-merge off again," if setting_state(report, "toggles") == "done" else ""
     return [
         "1. Read this pull request, then merge it.",
         setup,
         "   For a project worked by volunteers on their own Claude accounts, run instead"
-        f" `python3 scripts/crowd.py setup {repo} --area AREA`{crowd_note} and, after reading the pull request it"
-        f" opens, `python3 scripts/crowd.py finish {repo}`, as `docs/setup/crowdsourcing.md`, Part 1, says;"
+        f" `python3 scripts/crowd.py setup {repo} --area AREA`{crowd_note(report)} and, after reading the pull request"
+        f" it opens, `python3 scripts/crowd.py finish {repo}`, as `docs/setup/crowdsourcing.md`, Part 1, says;"
         " setup-repo.sh refuses to run once crowd mode is on.",
         "3. Write the goal in `docs/project.md` and the owners in `docs/agents/OWNERSHIP.md`.",
         "4. Run `bash scripts/check.sh` once; CI runs the same as the check named \"check\".",

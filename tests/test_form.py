@@ -115,6 +115,24 @@ class TheForm(unittest.TestCase):
             self.assertIn('"Only select repositories"', text)
         self.assertNotIn("Setup App", "\n".join(re.findall(r"^      label: (.+)$", self.text, re.MULTILINE)))
 
+    def test_the_consent_names_every_setting_the_setup_app_applies(self):
+        """Installing the Setup App is the consent to its settings, so the
+        README's first step and the refusal that sends a person to install
+        it name each one the pull request's text names, the box that lets
+        GitHub Actions open pull requests among them, and so does the
+        privacy statement."""
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        step = readme[readme.index("1. **Install both Apps**"):readme.index("2. **Press Create**")]
+        workflow = (ROOT / ".github/workflows/adopt.yml").read_text(encoding="utf-8")
+        refusal = next(line for line in workflow.splitlines() if "Symphony Setup is not installed on $TARGET" in line)
+        for place, text in (("README.md", step), ("adopt.yml", refusal)):
+            for name in (*adopt.THE_SETTINGS, adopt.ACTIONS_SETTING):
+                with self.subTest(place=place, setting=name):
+                    self.assertIn(name, text)
+        privacy = " ".join((ROOT / "PRIVACY.md").read_text(encoding="utf-8").split())
+        self.assertIn("applies up to six settings", privacy)
+        self.assertIn(f"ticks \"{adopt.ACTIONS_LABEL}\"", privacy)
+
     def test_blank_issues_are_off(self):
         config = (ROOT / ".github/ISSUE_TEMPLATE/config.yml").read_text(encoding="utf-8")
         self.assertIn("blank_issues_enabled: false\n", config)

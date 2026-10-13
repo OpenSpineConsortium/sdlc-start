@@ -17,9 +17,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from trees import (CREATOR, EMPTY_LISTS, LIBRARY, METRICS_BEFORE_BREAKDOWN, P, PROTOCOL_ADDED, SPEC, THEIR_CLAUDE,
-                   THEIR_FILES, THEIR_SETTINGS, THEIR_SETTINGS_TEXT, adopt, apply, checkpoint_lists, make_checkout,
-                   make_target, make_template, snapshot, track, write)
+from trees import (CREATOR, EMPTY_LISTS, LIBRARY, METRICS_BEFORE_BREAKDOWN, P, PROTOCOL_ADDED, SETUP_SCRIPT_BEFORE_BOX,
+                   SPEC, THEIR_CLAUDE, THEIR_FILES, THEIR_SETTINGS, THEIR_SETTINGS_TEXT, adopt, apply, checkpoint_lists,
+                   make_checkout, make_target, make_template, snapshot, track, write)
 
 PLACEHOLDERS = tuple(P.values())
 BOARD = (".github/workflows/board.yml", "tools/board.py")
@@ -122,6 +122,26 @@ class NewMode(Scratch):
         self.assertTrue(manifest["metrics_workflow"])
         self.assertFalse(manifest["metrics_breakdown"])
 
+    def test_a_setup_script_that_ticks_the_box_is_recorded(self):
+        _, manifest, _ = apply(self.template, self.target, self.manifest)
+        self.assertIn(adopt.SETUP_SCRIPT, manifest["added"])
+        self.assertTrue(manifest["setup_script_ticks_box"])
+
+    def test_a_setup_script_from_before_the_box_lands_without_it(self):
+        """The run copies the template's default branch, and the repository
+        keeps the script it was adopted with; a template with no setup
+        script at all records no box either."""
+        write(self.template, adopt.SETUP_SCRIPT, SETUP_SCRIPT_BEFORE_BOX)
+        _, manifest, _ = apply(self.template, self.target, self.manifest)
+        self.assertIn(adopt.SETUP_SCRIPT, manifest["added"])
+        self.assertFalse(manifest["setup_script_ticks_box"])
+        (self.template / adopt.SETUP_SCRIPT).unlink()
+        (self.target / adopt.SETUP_SCRIPT).unlink()
+        code, manifest, err = apply(self.template, self.target, self.manifest)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn(adopt.SETUP_SCRIPT, manifest["added"] + manifest["replaced"])
+        self.assertFalse(manifest["setup_script_ticks_box"])
+
     def test_the_whole_template_takes_no_spec(self):
         spec = write(self.root, "spec/PROTOCOL.md", SPEC)
         _, manifest, _ = apply(self.template, self.target, self.manifest, protocol_spec=spec)
@@ -161,6 +181,10 @@ class ExistingMode(Scratch):
         self.assertEqual(set(manifest["added"]), PROTOCOL_ADDED)
         self.assertEqual(manifest["merged"], sorted([adopt.CLAUDE_MD, adopt.SETTINGS]))
         self.assertEqual((manifest["replaced"], manifest["kept"]), ([], []))
+
+    def test_the_protocol_brings_no_setup_script_and_so_no_box(self):
+        self.assertFalse(self.adopt_existing()["setup_script_ticks_box"])
+        self.assertFalse((self.target / adopt.SETUP_SCRIPT).exists())
 
     def test_claude_md_gains_the_section(self):
         self.adopt_existing()

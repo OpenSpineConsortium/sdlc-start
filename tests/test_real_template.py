@@ -4,8 +4,10 @@ The other tests run on a fake template, since this repository is public and
 the template is not, and CI here cannot read it. Whoever can, runs these
 too: SDLC_TEMPLATE=/path/to/symphony-template bash scripts/check.sh. Mode new
 must leave no placeholder outside the workflows, no marker folder and,
-once the template's init empties it, an empty checkpoint block; mode
-existing must leave a vendored copy that the library's own check accepts.
+once the template's init empties it, an empty checkpoint block, and read a
+setup script that ticks the box for GitHub Actions' pull requests as one;
+mode existing must leave a vendored copy that the library's own check
+accepts.
 """
 
 import os
@@ -48,6 +50,18 @@ class RealTemplate(unittest.TestCase):
         code, _, err = apply(TEMPLATE, target, self.manifest)
         self.assertEqual(code, 0, err)
         self.assertEqual(checkpoint_lists((target / "CLAUDE.md").read_text(encoding="utf-8")), EMPTY_LISTS)
+
+    def test_a_setup_script_that_ticks_the_box_is_read_as_one(self):
+        """The pull request names the box among the setup script's steps by
+        the API path the script calls, so the real script that ticks it
+        must be read as one."""
+        script = (Path(TEMPLATE) / adopt.SETUP_SCRIPT).read_text(encoding="utf-8")
+        if "can_approve_pull_request_reviews" not in script:
+            self.skipTest("the template's scripts/setup-repo.sh does not tick the box yet")
+        target = make_target(self.root / "target")
+        code, manifest, err = apply(TEMPLATE, target, self.manifest)
+        self.assertEqual(code, 0, err)
+        self.assertTrue(manifest["setup_script_ticks_box"])
 
     def test_existing_mode_leaves_a_copy_the_library_accepts(self):
         target = make_target(self.root / "target", THEIR_FILES)
