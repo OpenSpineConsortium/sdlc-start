@@ -59,11 +59,15 @@ class Body(unittest.TestCase):
         self.template = make_template(self.root / "template")
         self.manifest = self.root / "manifest.json"
 
-    def body(self, files=None, ignore=None, settings=None, **options):
+    def body(self, files=None, ignore=None, settings=None, links=None, **options):
+        """The pull request's text for a target holding files, and links
+        (path -> what it leads to) beside them."""
         if ignore is None:
             target = make_target(self.root / "target", files)
         else:
             target = make_checkout(self.root / "target", files, ignore)
+        for rel, leads_to in (links or {}).items():
+            (target / rel).symlink_to(leads_to)
         code, manifest, err = apply(self.template, target, self.manifest, **options)
         self.assertEqual(code, 0, err)
         argv = ["body", "--manifest", str(self.manifest)]
@@ -239,6 +243,42 @@ class Body(unittest.TestCase):
         self.assertIn("Nothing is shared: `.github/symphony-metrics` was not written (above), and what stands in its"
                       " place is read as `off`, so the metrics workflow", body)
         self.assertNotIn("Sharing of anonymous aggregates is on", body)
+
+    def test_an_old_opt_out_beside_what_stands_in_the_switchs_place_names_both(self):
+        """Something of the repository's own stands where the switch goes,
+        which the metrics workflow reads as off, and the switch under its
+        old name says off: the body names both, so that writing on where it
+        says turns sharing on, not the old switch alone."""
+        make_template(self.template, metrics=True)
+        body = self.body({"README.md": "# widget\n", ".github/symphony-metrics/notes.md": "their notes\n",
+                          ".github/sdlc-metrics": "off\n"})
+        self.assertIn("Nothing is shared: `.github/sdlc-metrics` says `off`, and `.github/symphony-metrics` was not"
+                      " written (above), and what stands in its place is read as `off`, so the metrics workflow", body)
+        self.assertIn("Write `on` in both to share", body)
+        self.assertNotIn("Write `on` there", body)
+
+    def test_a_kept_switch_that_is_a_link_to_nothing_is_said_to_read_as_missing(self):
+        """The metrics workflow meets a missing file through a link to
+        nothing, so a kept switch that is one shares unless the old switch
+        says off, and the body says why; an old switch that is one says
+        nothing beside a kept switch saying on."""
+        make_template(self.template, metrics=True)
+        body = self.body(THEIR_FILES, links={".github/symphony-metrics": "gone"}, mode="existing")
+        self.assertIn("Sharing of anonymous aggregates is on: `.github/symphony-metrics`, which this repository had"
+                      " already and keeps, is a link to nothing, which the metrics workflow reads as a missing switch,"
+                      " and a missing switch is read as `on`. Once a day", body)
+        self.assertNotIn("`None`", body)
+        shutil.rmtree(self.root / "target")
+        body = self.body(dict(THEIR_FILES, **{".github/sdlc-metrics": "off\n"}),
+                         links={".github/symphony-metrics": "gone"}, mode="existing")
+        self.assertIn("Nothing is shared: `.github/sdlc-metrics` says `off`, so the metrics workflow", body)
+        self.assertIn("Write `on` there to share", body)
+        shutil.rmtree(self.root / "target")
+        body = self.body(dict(THEIR_FILES, **{".github/symphony-metrics": "on\n"}),
+                         links={".github/sdlc-metrics": "gone"}, mode="existing")
+        self.assertIn("Sharing of anonymous aggregates is on: `.github/symphony-metrics`, which this repository had"
+                      " already and keeps, is read as `on`.", body)
+        self.assertNotIn("Nothing is shared", body)
 
     def test_a_workflow_written_without_a_script_it_runs_is_said_not_to_run(self):
         make_template(self.template, metrics=True)

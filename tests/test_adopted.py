@@ -14,13 +14,19 @@ read. On the form's paths the Setup App that request needed uninstalls
 itself afterwards, by the step that does so after an adoption, run here
 with curl answered from a table; and the stage step answers apply's
 refusal of an adoption that could not write docs/agents/PROTOCOL.md, the
-file the rule reads, as a refusal on the request.
+file the rule reads, as a refusal on the request. A named repository
+without the Setup App is asked the same question by adopt.yml before it is
+sent to install that App, and gets the same answer, kept in the script;
+and a form from the install, which adopt.yml answers once after the run,
+is answered by nothing more once the run refused it and closed its issue.
+Those steps are run here for real too.
 """
 
 import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -41,6 +47,7 @@ OWNER, NAME = "mona", "widget"
 REPOSITORY = f"{OWNER}/{NAME}"
 PROTOCOL = f"/repos/{REPOSITORY}/contents/docs/agents/PROTOCOL.md"
 RUN = ROOT / ".github/workflows/adopt-run.yml"
+ADOPT = ROOT / ".github/workflows/adopt.yml"
 TARGET_STEP = "name: Read the repository, and stop when it cannot take the pull request"
 TELL_STEP = "name: Tell the repository when the sweep's adoption was refused or failed"
 ANSWER = "Nothing was done: the repository is adopted already."
@@ -133,6 +140,32 @@ class TheScript(unittest.TestCase):
                 self.assertTrue(err.startswith("adopted: "))
                 self.assertNotIn(repository, err)
 
+    def test_the_answer_is_kept_here_and_printed_without_a_question(self):
+        """The words of the one answer, which the run gives and adopt.yml
+        gives where the Setup App is missing, live in the script: --answer
+        prints them and asks GitHub nothing, needing no token and no name,
+        and they name nothing, since a repository given by ids may be
+        private."""
+        github = FakeGitHub(200)
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, {}, clear=True), contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(err):
+            code = adopted.main(["--answer"], transport=github)
+        self.assertEqual((code, out.getvalue(), err.getvalue(), github.calls), (0, adopted.ANSWER + "\n", "", []))
+        self.assertTrue(adopted.ANSWER.startswith(ANSWER))
+        self.assertTrue(adopted.ANSWER.endswith("; this one is closed."))
+        self.assertNotIn("$", adopted.ANSWER)
+        adopted.ANSWER.encode("ascii")
+
+    def test_no_name_is_refused_before_any_call(self):
+        github = FakeGitHub(200)
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, {"GH_TOKEN": TOKEN}, clear=True), contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(err):
+            code = adopted.main([], transport=github)
+        self.assertEqual((code, out.getvalue(), github.calls), (2, "", []))
+        self.assertTrue(err.getvalue().startswith("adopted: the repository must be OWNER/NAME"))
+
 
 def step_script(text, name):
     """The run: block of the step with this name, unindented, as the
@@ -151,14 +184,23 @@ def step_script(text, name):
 FAKE_GH = """#!/usr/bin/env python3
 # gh, answered as GitHub would answer the step for a repository with a
 # commit on main, no branch symphony/adopt and a README alone; every call
-# is kept, and issue writes are only kept.
+# is kept, and issue writes are only kept, except that a close marks the
+# issue closed in the file ISSUE_STATE names, which a view reads.
 import json, os, sys
 argv = sys.argv[1:]
 with open(os.environ["GH_LOG"], "a", encoding="utf-8") as log:
     log.write(json.dumps(argv) + "\\n")
-if argv[:1] == ["api"]:
+state = os.environ.get("ISSUE_STATE", "")
+if argv[:2] == ["issue", "view"]:
+    print(open(state, encoding="utf-8").read().strip() if state and os.path.exists(state) else "OPEN")
+elif argv[:2] == ["issue", "close"] and state:
+    open(state, "w", encoding="utf-8").write("CLOSED\\n")
+elif argv[:1] == ["api"]:
     path = argv[1]
-    if path == "repos/" + os.environ["TARGET"]:
+    asked = argv[argv.index("--jq") + 1] if "--jq" in argv else ""
+    if path == "repos/" + os.environ["TARGET"] and asked in (".owner.id", ".id"):
+        print("583231" if asked == ".owner.id" else "1296269")
+    elif path == "repos/" + os.environ["TARGET"]:
         print("default_branch=main")
         print("owner_type=User")
     elif "/git/matching-refs/" in path or "/pulls?" in path:
@@ -301,10 +343,9 @@ class TheRunsCheck(unittest.TestCase):
         order = [script.index(words) for words in ('has no commit yet', 'python3 start/scripts/adopted.py "$TARGET"',
                                                    'taken="$(', 'mode="$MODE_GIVEN"')]
         self.assertEqual(order, sorted(order))
-        refusal = script[script.index(ANSWER):]
-        refusal = refusal[:refusal.index('"\n')]
-        for word in ("$SAID", "$TARGET", "$OWNER", "$PULLS_LINK", "$BRANCHES_LINK"):
-            self.assertNotIn(word, refusal)
+        self.assertIn('3) echo "ADOPTED=true" >> "$GITHUB_ENV"\n     bash start/scripts/refuse.sh'
+                      ' "$(python3 start/scripts/adopted.py --answer)"\n     exit 0 ;;', script)
+        self.assertNotIn(ANSWER, script, "the words are the script's, in one place")
 
     def test_on_the_sweeps_path_an_adopted_repository_is_told_nothing(self):
         """The sweep's own checks pass an adopted repository over, so the
@@ -405,6 +446,16 @@ def logged(path):
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
 
 
+def stage_environ(runner, status, said=REPOSITORY):
+    """The stage step's environment on a request from the form, with apply
+    ending in status."""
+    return {"MODE": "existing", "KIND_READ": "true", "TARGET": REPOSITORY, "REQUESTER": OWNER,
+            "OWNER_TYPE": "User", "DEFAULT_BRANCH": "main", "METRICS": "on", "SOURCE": "issue",
+            "RUNNER_TEMP": str(runner), "GITHUB_ENV": str(runner / "env"), "ISSUE": "7",
+            "ISSUE_TOKEN": "issue-token", "GITHUB_REPOSITORY": "OpenSpineConsortium/symphony-start",
+            "SAID": said, "GH_LOG": str(runner / "gh.log"), "APPLY_STATUS": str(status)}
+
+
 class TheSetupAppAfterTheRefusal(unittest.TestCase):
     """The form's paths need Symphony Setup, which the person installs for
     the one run: a request refused because the repository is adopted
@@ -483,12 +534,7 @@ class TheStageStep(unittest.TestCase):
         """(exit code, GITHUB_ENV's lines, the calls made, what it printed)."""
         for name in ("env", "gh.log"):
             (self.runner / name).write_text("", encoding="utf-8")
-        environ = {"MODE": "existing", "KIND_READ": "true", "TARGET": REPOSITORY, "REQUESTER": OWNER,
-                   "OWNER_TYPE": "User", "DEFAULT_BRANCH": "main", "METRICS": "on", "SOURCE": "issue",
-                   "RUNNER_TEMP": str(self.runner), "GITHUB_ENV": str(self.runner / "env"), "ISSUE": "7",
-                   "ISSUE_TOKEN": "issue-token", "GITHUB_REPOSITORY": "OpenSpineConsortium/symphony-start",
-                   "SAID": said, "GH_LOG": str(self.runner / "gh.log"), "APPLY_STATUS": str(status)}
-        code, out = run_script(self.root, step_script(self.text, STAGE_STEP), environ)
+        code, out = run_script(self.root, step_script(self.text, STAGE_STEP), stage_environ(self.runner, status, said))
         env = (self.runner / "env").read_text(encoding="utf-8").splitlines()
         return code, env, logged(self.runner / "gh.log"), out
 
@@ -524,6 +570,177 @@ class TheStageStep(unittest.TestCase):
         self.assertEqual(env, [])
         self.assertIn(["adopt.py", "body", "--title", "--manifest", str(self.runner / "manifest.json")], calls)
         self.assertEqual((self.runner / "title").read_text(encoding="utf-8"), "Take up the Symphony claim protocol\n")
+
+
+SETUP_CHECK_STEP = "name: Check that the Setup App is installed on the repository"
+ANSWER_STEP = "name: Answer the request and close it"
+ISSUE_CALLS = ("comment", "close", "view")
+
+
+class TheNamedRequestWithoutTheSetupApp(unittest.TestCase):
+    """A named repository without Symphony Setup is refused with the App's
+    install link, since installing it is the consent to the settings; but
+    one adopted already would be refused by the run once the App was there,
+    so the person would grant Administration for nothing. The issue path
+    therefore asks scripts/adopted.py first, with the App's token for that
+    one repository that reads contents, and gives the run's own answer.
+    The step of adopt.yml is run here for real, as the run's are."""
+
+    def setUp(self):
+        self.scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(self.scratch.cleanup)
+        self.root = Path(self.scratch.name)
+        self.runner = make_runner(self.root)
+        (self.root / "start/scripts/adopted.py").write_text(STAND_IN.format(scripts=str(SCRIPTS)), encoding="utf-8")
+        self.text = ADOPT.read_text(encoding="utf-8")
+
+    def check(self, status, **more):
+        """(exit code, GITHUB_ENV's lines, the calls made, what it printed),
+        the contents call answering status."""
+        for name in ("env", "gh.log"):
+            (self.runner / name).write_text("", encoding="utf-8")
+        environ = {"SETUP_OUTCOME": "failure", "PROBE_OUTCOME": "success", "CONTENTS_OUTCOME": "success",
+                   "CONTENTS_TOKEN": TOKEN, "GH_TOKEN": "account-token", "TARGET": REPOSITORY,
+                   "ISSUE_TOKEN": "issue-token", "ISSUE": "7", "GITHUB_REPOSITORY": "OpenSpineConsortium/symphony-start",
+                   "RUN": "https://github.com/OpenSpineConsortium/symphony-start/actions/runs/1",
+                   "RUNNER_TEMP": str(self.runner), "GITHUB_ENV": str(self.runner / "env"),
+                   "GH_LOG": str(self.runner / "gh.log"), "ANSWER_STATUS": str(status), **more}
+        code, out = run_script(self.root, step_script(self.text, SETUP_CHECK_STEP), environ)
+        env = (self.runner / "env").read_text(encoding="utf-8").splitlines()
+        return code, env, logged(self.runner / "gh.log"), out
+
+    def answered(self, calls):
+        comment, = [call for call in calls if call[:2] == ["issue", "comment"]]
+        return comment[comment.index("--body") + 1]
+
+    def test_an_adopted_repository_gets_the_runs_answer_and_no_install_link(self):
+        code, env, calls, out = self.check(200)
+        self.assertEqual(code, 0, out)
+        self.assertIn("REFUSED=true", env)
+        self.assertIn(["adopted.py", REPOSITORY, TOKEN], calls, "asked with the token that reads contents")
+        self.assertEqual(self.answered(calls), adopted.ANSWER)
+        self.assertIn(["issue", "close", "7", "--repo", "OpenSpineConsortium/symphony-start", "--reason", "not planned"],
+                      calls)
+        self.assertFalse([call for call in calls if call[:1] == ["api"]], "no id is read for an install link")
+
+    def test_one_with_no_adoption_or_no_answer_is_sent_to_install_the_setup_app(self):
+        """A question GitHub does not answer, or a token that could not be
+        made, leaves the adopted check to the run, which asks again once the
+        Setup App is there."""
+        link = (f"https://github.com/apps/symphony-setup/installations/new/permissions?suggested_target_id=583231"
+                f"&repository_ids[]=1296269&state={REPOSITORY}")
+        for status, more, asked in ((404, {}, True), (500, {}, True), (200, {"CONTENTS_OUTCOME": "failure"}, False)):
+            with self.subTest(status=status, **more):
+                code, env, calls, out = self.check(status, **more)
+                self.assertEqual(code, 0, out)
+                self.assertIn("REFUSED=true", env)
+                answer = self.answered(calls)
+                self.assertTrue(answer.startswith(f"Nothing was done: Symphony Setup is not installed on {REPOSITORY}."))
+                self.assertIn(link, answer)
+                questions = [call for call in calls if call[:1] == ["adopted.py"]]
+                self.assertEqual(questions, [["adopted.py", REPOSITORY, TOKEN]] if asked else [])
+
+    def test_nothing_is_asked_where_the_setup_app_is_there_or_broken(self):
+        code, env, calls, out = self.check(200, SETUP_OUTCOME="success", CONTENTS_OUTCOME="", CONTENTS_TOKEN="")
+        self.assertEqual((code, env, calls), (0, [], []), out)
+        code, env, calls, out = self.check(200, PROBE_OUTCOME="failure", CONTENTS_OUTCOME="", CONTENTS_TOKEN="")
+        self.assertEqual(code, 1, out)
+        self.assertIn("this front door's Setup App is not working", self.answered(calls))
+        self.assertFalse([call for call in calls if call[:1] == ["adopted.py"]])
+        self.assertFalse([call for call in calls if call[:2] == ["issue", "close"]], "the owner's to fix; left open")
+
+    def test_the_question_is_asked_with_a_token_that_reads_the_one_repository(self):
+        """The main App's token, for the named repository alone, with
+        contents read and nothing else, made only once the Setup App's mint
+        failed and its probe showed that App works."""
+        steps = re.split(r"\n      - (?=uses:|name:)", self.text)
+        mint, = [step for step in steps if "id: contents-token" in step]
+        self.assertIn("app-id: ${{ vars.SDLC_APP_ID }}", mint)
+        self.assertIn("owner: ${{ steps.form.outputs.owner }}\n          repositories: ${{ steps.form.outputs.name }}\n",
+                      mint)
+        self.assertEqual(re.findall(r"permission-[a-z-]+: \w+", mint), ["permission-contents: read"])
+        self.assertIn("steps.setup-token.outcome == 'failure' && steps.setup-probe.outcome == 'success'", mint)
+        self.assertIn("continue-on-error: true", mint)
+        self.assertNotIn("skip-token-revoke", mint)
+        order = [self.text.index(words) for words in ("id: setup-probe", "id: contents-token", SETUP_CHECK_STEP)]
+        self.assertEqual(order, sorted(order))
+        check = step_script(self.text, SETUP_CHECK_STEP)
+        self.assertIn('GH_TOKEN="$CONTENTS_TOKEN" python3 start/scripts/adopted.py "$TARGET"', check)
+        self.assertLess(check.index("adopted.py --answer"), check.index('OWNER_ID="$('))
+
+
+class TheInstallationsAnswer(unittest.TestCase):
+    """A form from the install is answered once, by adopt.yml's job answer
+    after the run, which answers nothing itself on that path; a run that
+    refused its repository has answered the issue already and closed it,
+    ending green, so that job says nothing more of an issue no longer open,
+    where it would say a pull request is open. The run's stage step, whose
+    apply refuses an adoption that could not write the protocol's text,
+    and the job's step are run here for real, one after the other, on an
+    issue gh keeps the state of."""
+
+    def setUp(self):
+        self.scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(self.scratch.cleanup)
+        self.root = Path(self.scratch.name)
+        self.runner = make_runner(self.root, STAND_IN_ADOPT)
+        self.state = self.runner / "issue-state"
+        (self.runner / "gh.log").write_text("", encoding="utf-8")
+        (self.runner / "env").write_text("", encoding="utf-8")
+
+    def stage(self, status):
+        """The run's stage step for this issue; (exit code, what it printed)."""
+        environ = dict(stage_environ(self.runner, status, said="your repository"), ISSUE_STATE=str(self.state))
+        return run_script(self.root, step_script(RUN.read_text(encoding="utf-8"), STAGE_STEP), environ)
+
+    def answer(self, result="success", merge="true"):
+        """The answer job's step; (exit code, what it printed)."""
+        environ = {"ISSUE": "7", "COUNT": "1", "RESULT": result, "MERGE": merge, "GH_TOKEN": "issue-token",
+                   "RUN": "https://github.com/OpenSpineConsortium/symphony-start/actions/runs/1",
+                   "GITHUB_REPOSITORY": "OpenSpineConsortium/symphony-start", "TARGET": REPOSITORY,
+                   "GH_LOG": str(self.runner / "gh.log"), "ISSUE_STATE": str(self.state)}
+        return run_script(self.root, step_script(ADOPT.read_text(encoding="utf-8"), ANSWER_STEP), environ)
+
+    def issue_calls(self):
+        return [call for call in logged(self.runner / "gh.log") if call[:1] == ["issue"] and call[1] in ISSUE_CALLS]
+
+    def body_of(self, call):
+        return call[call.index("--body") + 1]
+
+    def test_a_refusal_in_the_run_is_the_last_word_on_the_issue(self):
+        code, out = self.stage(3)
+        self.assertEqual(code, 0, out)
+        code, out = self.answer()
+        self.assertEqual(code, 0, out)
+        self.assertIn("nothing more to say", out)
+        comment, close, view = self.issue_calls()
+        self.assertEqual([comment[:2], close[:2], view[:2]], [["issue", "comment"], ["issue", "close"], ["issue", "view"]])
+        self.assertTrue(self.body_of(comment).startswith("Nothing was done: docs/agents/PROTOCOL.md, the claim protocol's"
+                                                         " text, cannot be written in your repository"))
+        self.assertEqual(close[close.index("--reason") + 1], "not planned")
+
+    def test_an_adoption_made_is_answered_and_closed_as_completed(self):
+        code, out = self.stage(0)
+        self.assertEqual(code, 0, out)
+        code, out = self.answer()
+        self.assertEqual(code, 0, out)
+        view, comment, close = self.issue_calls()
+        self.assertEqual(view[:2], ["issue", "view"])
+        self.assertTrue(self.body_of(comment).startswith("Done: the pull request is open in your repository, from the"
+                                                         " branch symphony/adopt;"))
+        self.assertIn(" Each is merged, or has auto-merge armed", self.body_of(comment))
+        self.assertEqual(close[close.index("--reason") + 1], "completed")
+
+    def test_a_run_that_failed_is_said_so_and_left_open_unless_a_refusal_closed_it(self):
+        code, out = self.answer(result="failure")
+        self.assertEqual(code, 0, out)
+        view, comment = self.issue_calls()
+        self.assertTrue(self.body_of(comment).startswith("At least one of the 1 adoptions stopped with a failure"))
+        (self.runner / "gh.log").write_text("", encoding="utf-8")
+        self.state.write_text("CLOSED\n", encoding="utf-8")
+        code, out = self.answer(result="failure")
+        self.assertEqual(code, 0, out)
+        self.assertEqual([call[:2] for call in self.issue_calls()], [["issue", "view"]])
 
 
 class TheReadme(unittest.TestCase):

@@ -1003,18 +1003,45 @@ def switch_says(target, rel):
     return "on" if switch_word(target, rel) == "on" else "off"
 
 
+def links_to_nothing(target, rel):
+    """Whether rel of the target is a link, or a chain of them, that stays
+    inside the repository and ends at nothing there: the template's
+    tools/metrics.py, opening a switch through it, meets a missing file,
+    which says nothing. A link out of the repository or into its .git, and
+    one that cannot be followed for another reason, such as a loop, are
+    not, and stay doubts."""
+    path = target / rel
+    if not path.is_symlink() or blocked(target, rel):
+        return False
+    real = os.path.realpath(path)
+    if not inside(real, str(target)) or inside(real, str(target / ".git")):
+        return False
+    try:
+        path.stat()
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
 def switches_off(target):
     """The switch files of the target that say off, under the switch's name
-    or its old one: an opt-out the adoption never turns back on."""
+    or its old one: an opt-out the adoption never turns back on. A doubt
+    is one too, a link to nothing among them, since the owner's word may
+    lie where this run cannot read it, and off shares nothing."""
     return [rel for rel in SWITCHES if switch_says(target, rel) == "off"]
 
 
 def switches_after(target):
-    """What each switch file of the target says once the files have landed,
-    the new name first. A file that is not there says nothing and is left
-    out, as one the repository ignores is, which is missing from every
-    clone."""
-    return {rel: said for rel in SWITCHES if (said := switch_says(target, rel))}
+    """What each switch file of the target says to the metrics workflow once
+    the files have landed, the new name first. A file that is not there
+    says nothing and is left out, as one the repository ignores is, which
+    is missing from every clone, and so is a link to nothing, which that
+    workflow reads as a missing file: this says what it will read, where
+    switches_off says what the adoption takes as an opt-out."""
+    return {rel: said for rel in SWITCHES
+            if not links_to_nothing(target, rel) and (said := switch_says(target, rel))}
 
 
 def switch_reads(switches):
@@ -1026,30 +1053,58 @@ def switch_reads(switches):
     return "off" if "off" in switches.values() else "on"
 
 
-def note_held_switch(manifest, said_off, metrics):
+def held_words(rel, unread, before=False):
+    """What the switch file rel said before this request, as the held note
+    words it: off, or, for a link to nothing, which this run cannot read,
+    that the adoption takes it as off."""
+    if rel not in unread:
+        return "said `off` before this request" if before else "says `off`"
+    link = "was a link to nothing before this request" if before else "is a link to nothing"
+    return f"{link}, which this adoption takes as `off`"
+
+
+def note_held_switch(manifest, said_off, unread, metrics):
     """Say why the switch this adoption wrote says off where the form left
     sharing on: a switch of the repository's own said off before it, and
-    the form's default never lifts an opt-out made in the repository."""
+    the form's default never lifts an opt-out made in the repository; or
+    one was a link to nothing (unread), which the adoption takes for an
+    opt-out, since off shares nothing, and which the metrics workflow
+    reads as no switch at all."""
     if metrics != "on" or not said_off or SWITCH not in manifest["added"] + manifest["replaced"]:
         return
+    still = "says `off` now" if SWITCH in unread else "still says `off`"
     if OLD_SWITCH in said_off:
-        said = f"`{OLD_SWITCH}`, the switch under its name before the rename to Symphony, says `off`"
+        said = (f"`{OLD_SWITCH}`, the switch under its name before the rename to Symphony,"
+                f" {held_words(OLD_SWITCH, unread)}")
         if SWITCH in said_off:
-            said += f", as `{SWITCH}` did, so `{SWITCH}` still says `off`"
+            said += f", and `{SWITCH}` {held_words(SWITCH, unread, before=True)}, so `{SWITCH}` {still}"
         else:
             said += f", so `{SWITCH}` says `off` too"
-        lift = f"write `on` in both files, or delete `{OLD_SWITCH}` and write `on` in `{SWITCH}`"
+        if OLD_SWITCH in unread:
+            lift = f"write `on` in `{SWITCH}`, since the metrics workflow reads a link to nothing as no switch at all"
+        else:
+            lift = f"write `on` in both files, or delete `{OLD_SWITCH}` and write `on` in `{SWITCH}`"
     else:
-        said = f"`{SWITCH}` said `off` before this request, so it still says `off`"
+        said = f"`{SWITCH}` {held_words(SWITCH, unread, before=True)}, so it {still}"
         lift = "write `on` there"
+    taken = ", and a switch this adoption cannot read counts as one" if unread & set(said_off) else ""
     manifest["notes"].append(f"{said}, though the form left sharing on: the form's default never lifts an opt-out made"
-                             f" in the repository. To share, {lift}.")
+                             f" in the repository{taken}. To share, {lift}.")
 
 
 def note_kept_switch(target, manifest, metrics):
     """Say so when mode existing kept a switch that says something else than
-    the form asked."""
+    the form asked, or that is a link to nothing, which the metrics workflow
+    reads as no switch at all and so as the form's on, where no other
+    switch says off."""
     if SWITCH not in manifest["kept"]:
+        return
+    if links_to_nothing(target, SWITCH):
+        if metrics != "on":
+            manifest["notes"].append(
+                f"{SWITCH} was there already and is a link to nothing, which the metrics workflow reads as a missing"
+                f" switch, where the form asked for `{metrics}`; it is kept, so edit it to change the choice."
+            )
         return
     said = switch_word(target, SWITCH)
     if said != metrics:
@@ -1130,8 +1185,10 @@ def adopt(options):
     template, target, manifest_path = checked_roots(options)
     # An off the repository says already, under either name, is read
     # before anything is written, and the switch the adoption writes says
-    # off too: the form's default of on never lifts an opt-out.
+    # off too: the form's default of on never lifts an opt-out. A link to
+    # nothing is taken as one, and the note says it was a link.
     said_off = switches_off(target)
+    unread = {rel for rel in said_off if links_to_nothing(target, rel)}
     plan, links, protocol_text = staged_plan(template, options, "off" if said_off else options.metrics)
     manifest = new_manifest(options, links, protocol_text, plan)
     ignored, held = set(), {}
@@ -1151,13 +1208,14 @@ def adopt(options):
         add_claude_section(target, manifest, ignored)
         merge_settings(target, manifest, ignored)
         note_kept_switch(target, manifest, options.metrics)
-    note_held_switch(manifest, said_off, options.metrics)
+    note_held_switch(manifest, said_off, unread, options.metrics)
     landed = manifest["added"] + manifest["replaced"]
     metrics = metrics_files(plan)
     manifest["metrics_workflow"] = bool(metrics) and all(in_place(target, plan, manifest, rel) for rel in metrics)
     manifest["metrics_breakdown"] = manifest["metrics_workflow"] and BREAKDOWN_KEY in plan[METRICS_SCRIPT][0]
     # Off in either file wins, as the template's tools/metrics.py reads
-    # them, so the pull request says what the switches it leaves will do.
+    # them, and a link to nothing says nothing there, so the pull request
+    # says what the switches it leaves will do.
     manifest["switches"] = switches_after(target)
     manifest["switch_reads"] = switch_reads(manifest["switches"])
     manifest["setup_script_ticks_box"] = SETUP_SCRIPT in landed and ACTIONS_PATH in plan[SETUP_SCRIPT][0]
@@ -1388,9 +1446,13 @@ def switch_said(manifest):
     will read it: written with the word this adoption wrote, kept with the
     repository's own, or not written, where its absence or what stands in
     its place decides; never the form's word where the switch does not hold
-    it."""
+    it. A switch the repository keeps that says nothing is a link to
+    nothing, which that workflow reads as a missing file."""
     said = manifest["switches"].get(SWITCH)
     if SWITCH in manifest["kept"]:
+        if said is None:
+            return (f"`{SWITCH}`, which this repository had already and keeps, is a link to nothing, which the metrics"
+                    " workflow reads as a missing switch, and a missing switch is read as `on`")
         return f"`{SWITCH}`, which this repository had already and keeps, is read as `{said}`"
     if switch_written(manifest):
         return f"`{SWITCH}` says `{said}`"
@@ -1400,18 +1462,20 @@ def switch_said(manifest):
 
 
 def off_sentence(manifest):
-    """Nothing is shared, and which switch says so: the one this pull
-    request writes or keeps, or what stands in its place, as switch_said
-    tells it; or, where the switch under its old name says off, each switch
-    file there that says off, the old one beside the new or alone."""
+    """Nothing is shared, and every switch file that says so, so that
+    writing on where the sentence says turns sharing on: the switch this
+    pull request writes or keeps, or what stands in its place, as
+    switch_said tells it, with the switch under its old name beside it
+    where that says off too, or the old one alone where only it does."""
     switches = manifest["switches"]
-    if switches.get(OLD_SWITCH) == "off":
-        there = [OLD_SWITCH] + ([SWITCH] if switch_written(manifest) else [])
-        off = [rel for rel, said in switches.items() if said == "off" and rel in there]
-        names = " and ".join(f"`{rel}`" for rel in off)
-        said, where = (f"{names} says `off`", "there") if len(off) == 1 else (f"{names} say `off`", "in both")
-    else:
+    if switches.get(OLD_SWITCH) != "off":
         said, where = switch_said(manifest), "there"
+    elif switches.get(SWITCH) != "off":
+        said, where = f"`{OLD_SWITCH}` says `off`", "there"
+    elif switch_written(manifest):
+        said, where = f"`{SWITCH}` and `{OLD_SWITCH}` say `off`", "in both"
+    else:
+        said, where = f"`{OLD_SWITCH}` says `off`, and {switch_said(manifest)}", "in both"
     return (f"Nothing is shared: {said}, so the metrics workflow, where there is one, writes only that sharing is off."
             f" Write `on` {where} to share anonymous aggregates later.")
 

@@ -9,12 +9,17 @@ setup script that ticks the box for GitHub Actions' pull requests as one;
 mode existing must leave a vendored copy that the library's own check
 accepts, and workflows whose scripts import only what landed with them and
 run there: the template's scripts come to import modules of their own,
-which no fake template here can foresee.
+which no fake template here can foresee. In both, what the pull request
+says is shared must be what the adopted tools/metrics.py reads in the
+switches it leaves, and writing on where the pull request says must turn
+sharing on: the front door reads the switches by its own code, which the
+template's may outgrow.
 """
 
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -32,6 +37,53 @@ RUNS_A_SCRIPT = re.compile(r"\bpython3?\s+(?:-\S+\s+)*(\S+\.py)\b")
 OFFLINE = {"SDLC_METRICS": "", "HTTPS_PROXY": "http://127.0.0.1:9", "https_proxy": "http://127.0.0.1:9"}
 
 TEMPLATE = os.environ.get("SDLC_TEMPLATE", "")
+# What the adopted copy's own tools/metrics.py says of the switches, run as
+# the metrics workflow runs it, from the top of the checkout.
+READ_SHARING = "import sys; sys.path.insert(0, 'tools'); import metrics; print(metrics.sharing('.', {}))"
+
+
+def put_switch(target, rel, state):
+    """A switch file of the repository's own in one of the states a person
+    can leave it in, or none."""
+    path = Path(target) / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if state in ("on", "off"):
+        path.write_text(f"{state}\n", encoding="utf-8")
+    elif state == "a folder":
+        path.mkdir()
+        (path / "notes.md").write_text("their notes\n", encoding="utf-8")
+    elif state == "a link to nothing":
+        path.symlink_to(f"gone-{path.name}")
+
+
+def pull_request_text(manifest_path):
+    """The pull request's text for the manifest apply wrote."""
+    return adopt.render_body(json.loads(Path(manifest_path).read_text(encoding="utf-8")))
+
+
+def what_is_shared(body):
+    """What the pull request's section What is shared says, on, off or None
+    where nothing is computed, and its sentence."""
+    sentence = body.split("## What is shared\n\n", 1)[1].split("\n", 1)[0]
+    if sentence.startswith("Sharing of anonymous aggregates is on"):
+        return "on", sentence
+    if sentence.startswith("Nothing is shared:"):
+        return "off", sentence
+    return None, sentence
+
+
+def write_on_where_it_says(target, said):
+    """Write on in each switch file the off sentence names, in place of
+    whatever stands there."""
+    where = re.search(r"Write `on` (there|in both) to share", said).group(1)
+    named = re.findall(r"`(\.github/[a-z-]+)`", said.split(", so the metrics workflow")[0])
+    for rel in named[:1] if where == "there" else named:
+        path = Path(target) / rel
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        elif path.is_symlink() or path.exists():
+            path.unlink()
+        path.write_text("on\n", encoding="utf-8")
 
 
 @unittest.skipUnless(TEMPLATE, "SDLC_TEMPLATE names no checkout of the template")
@@ -74,6 +126,40 @@ class RealTemplate(unittest.TestCase):
         code, manifest, err = apply(TEMPLATE, target, self.manifest)
         self.assertEqual(code, 0, err)
         self.assertTrue(manifest["setup_script_ticks_box"])
+
+    def test_what_the_pull_request_says_is_shared_is_what_the_workflow_reads(self):
+        """Over the switch states a repository may hold, under the switch's
+        name and its old one: where the metrics workflow lands, the section
+        What is shared says what the adopted tools/metrics.py reads, and
+        where it says nothing is shared, writing on where it says makes the
+        workflow share. A link to nothing is a missing file to that script,
+        and something standing in the switch's place reads off."""
+        # (mode, the switch, the switch under its old name)
+        states = (
+            ("existing", "missing", "missing"), ("existing", "on", "off"), ("existing", "off", "on"),
+            ("existing", "on", "a link to nothing"), ("existing", "missing", "a link to nothing"),
+            ("existing", "a link to nothing", "missing"), ("existing", "a link to nothing", "off"),
+            ("new", "missing", "off"), ("new", "a folder", "missing"), ("new", "a folder", "off"),
+            ("new", "a link to nothing", "missing"), ("new", "off", "a link to nothing"),
+        )
+        for mode, new, old in states:
+            with self.subTest(mode=mode, new=new, old=old):
+                target = self.root / "target"
+                shutil.rmtree(target, ignore_errors=True)
+                make_target(target, THEIR_FILES if mode == "existing" else None)
+                put_switch(target, adopt.SWITCH, new)
+                put_switch(target, adopt.OLD_SWITCH, old)
+                code, manifest, err = apply(TEMPLATE, target, self.manifest, mode=mode)
+                self.assertEqual(code, 0, err)
+                self.assertTrue(manifest["metrics_workflow"])
+                done = run_script(target, "-c", READ_SHARING, environ=OFFLINE)
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                said, sentence = what_is_shared(pull_request_text(self.manifest))
+                self.assertEqual(said, done.stdout.strip(), sentence)
+                if said == "off":
+                    write_on_where_it_says(target, sentence)
+                    done = run_script(target, "-c", READ_SHARING, environ=OFFLINE)
+                    self.assertEqual(done.stdout.strip(), "on", sentence)
 
     def test_existing_mode_leaves_a_copy_the_library_accepts(self):
         target = make_target(self.root / "target", THEIR_FILES)

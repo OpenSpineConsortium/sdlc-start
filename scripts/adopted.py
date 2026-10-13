@@ -17,12 +17,16 @@ could not write that file, so no adoption is made that the rule misses.
 
 Exit 0 when the repository has no adoption yet, 3 when it has one, which
 the run answers with one message that names nothing of it, 1 when GitHub
-could not be asked, and 2 when GH_TOKEN is not set or the name is not one
-scripts/adopt.py name would print. Nothing printed names the repository,
-since the run's log is public and a repository given by ids may be
-private. GH_TOKEN is the repository's installation token, which reads its
-contents, and it is never printed. Python 3.12 or later, standard library
-only.
+could not be asked, and 2 when GH_TOKEN is not set or the name is missing
+or not one scripts/adopt.py name would print. With --answer it asks
+nothing and prints that message, ANSWER, the one place its words are
+kept: the run answers with it, and so does .github/workflows/adopt.yml,
+which asks this before it sends the administrator of a named repository
+to install Symphony Setup for a request the run would refuse. Nothing
+printed names the repository, since the run's log is public and a
+repository given by ids may be private. GH_TOKEN is an installation token
+for the repository that reads its contents, and it is never printed.
+Python 3.12 or later, standard library only.
 """
 
 import argparse
@@ -35,17 +39,44 @@ import adopt  # noqa: E402
 import sweep  # noqa: E402
 
 ADOPTED = 3
+# The answer to a request for a repository adopted already, on every path:
+# it names nothing of the repository, holds for either kind it took, and
+# says what to do instead.
+ANSWER = (
+    "Nothing was done: the repository is adopted already. Its default branch holds docs/agents/PROTOCOL.md, which"
+    " every adoption from this front door brings, of either kind, and every copy made with \"Use this template\""
+    " carries, and the form adopts a repository once, since a second adoption would put the template's files over"
+    " the ones the repository has made its own since, or, for the protocol alone, bring back what it has taken out."
+    " Later releases of the claim protocol reach it by pull request, from its own .github/workflows/protocol.yml where"
+    " it has one, or from a clone of the public OpenSpineConsortium/symphony-protocol with its scripts/vendor.py; what"
+    " the adoption's pull request did not write, its notes say how to add. To adopt it again, as the other kind or"
+    " with what was left out, first revert that adoption's merge on the default branch, so docs/agents/PROTOCOL.md is"
+    " gone from it, or rename that file if it is one of your own and not this protocol, then ask again. Symphony"
+    " Setup, where it was installed for this request, did nothing here: it uninstalls itself as this run ends where"
+    " this repository is the only one it was given, and is yours to uninstall otherwise. For the repository's page to"
+    " say it is adopted, and the Symphony browser extension's button to read Ready for Symphony, add the topic"
+    " symphony with the gear beside About there, where it is missing. To adopt another repository, open a new request"
+    " with the form naming that one; this one is closed."
+)
 
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(description="Whether a repository has an adoption already, by the sweep's rule.")
-    parser.add_argument("repository", help="OWNER/NAME, as scripts/adopt.py name printed it")
+    parser.add_argument("repository", nargs="?", help="OWNER/NAME, as scripts/adopt.py name printed it")
+    parser.add_argument("--answer", action="store_true",
+                        help="print the answer to a request for a repository adopted already, and ask nothing")
     parser.add_argument("--api", default=sweep.API, help=argparse.SUPPRESS)
     return parser.parse_args(argv)
 
 
 def main(argv=None, transport=sweep.urllib_transport):
     options = parse_args(argv)
+    if options.answer:
+        print(ANSWER)
+        return 0
+    if options.repository is None:
+        print("adopted: the repository must be OWNER/NAME, as scripts/adopt.py name prints it", file=sys.stderr)
+        return 2
     token = os.environ.get("GH_TOKEN", "")
     if not token:
         print("adopted: GH_TOKEN is not set", file=sys.stderr)
