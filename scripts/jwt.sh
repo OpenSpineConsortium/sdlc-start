@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Print a GitHub App's JWT, signed RS256 with the App's private key. The
-# sweep (.github/workflows/sweep.yml, scripts/sweep.py) lists
-# GET /app/installations and mints each installation's token, and GitHub
-# answers those two calls to the App's own JWT and nothing else; Python's
+# form's workflows read an App's installations (GET /app/installations
+# and /app/installations/ID, scripts/resolve.py), mint an installation's
+# token and ask which repositories the Setup App's installation reaches,
+# and GitHub answers those calls to the App's own JWT and nothing else; Python's
 # standard library has no RSA, so openssl signs it, and only coreutils
 # and openssl are used. The key is read from the environment, as a secret
 # gives it, and reaches openssl through process substitution, so it never

@@ -1,55 +1,45 @@
 name: Adopt (run)
 
 # One adoption, from the token that writes to the answer, for both ways a
-# request arrives: an issue on this repository's form, whose workflow
-# adopt.yml checks the form and the author and then calls this one, and
-# the sweep (sweep.yml), which finds a repository the App was installed
-# on and starts this workflow by dispatch, since installing the App is a
-# request too. What comes in is a name or a pair of ids, and that decides
-# what is public: a name typed into a public issue is public already, so
-# a run given one prints it and names it in its answers; a repository
-# given by the installation's and the repository's ids, from the sweep or
-# from a form that came from the install with the number filled in, may
-# be private and was named on no issue, so its name never reaches this
-# log, the run's inputs or the issue: the App's own JWT mints a
-# metadata-only token for that one repository, the id is resolved to a
-# name, the name, the owner's, the requester's and the default branch's
-# are masked before anything else can print them, and the answers say
-# "your repository" (SAID, with the links left out); the head commit the
-# checkout prints names nothing. The names stay inside this one job, so the environment
-# carries them (one sed line sets the three); only a job output, which
-# GitHub drops when it holds a masked value, could not. The issue path
-# brings the requester (the issue's author, an administrator by the
-# check adopt.yml made); the sweep brings none, and the run picks the
-# owner of a user's repository or the first direct administrator of an
-# organization's, masked too, which only matters for the copy's
-# CODEOWNERS. Every answer on an issue runs only when an issue number
-# came in. On the sweep's path a refusal after the token was minted
-# (the push turned away by a ruleset, say) is told to the repository in
-# one issue of the App's, which the sweep reads as "tried, and told" and
-# skips until the person closes it; a refusal the sweep's own checks
-# would have caught stays a line in this log, and a failure is a red run.
-# A broken Setup App of the front door's is told to the owner on both
-# paths. The rest holds as before: the template's token is read-only
-# and revoked right after the one checkout, the repository is checked
-# out at depth one on its qualified default branch, git's messages stay
-# out of this public log, the Setup App's token is minted after the push
-# and revoked right after the settings, and two requests for one
-# repository are settled by the push of symphony/adopt, which only one of
-# them can make. A repository with no commit yet, asked for on the form,
-# first gets the commit GitHub's own "Add a README file" makes, and is
-# then adopted like any repository with a README alone; the protocol alone
-# is refused it, since it has no code to go beside. A repository adopted
-# already is refused on every path
-# before anything is staged, by the sweep's own rule (scripts/adopted.py
-# asks sweep.is_adopted), since a name typed on the form meets neither
-# the sweep's checks nor the installation's, and a second adoption would
-# put the template's files over the repository's own or, for the protocol
-# alone, bring back what it took out; on the form's paths, which need the
-# Setup App, that App then uninstalls itself as after an adoption. And
-# apply refuses an adoption that could not write docs/agents/PROTOCOL.md,
-# the one file that rule reads, so every adoption made is one the next
-# request knows.
+# request arrives on this repository's form, whose workflow adopt.yml
+# checks the form and the author and then calls this one: a repository
+# named on the form, or the installation the form carried when the person
+# came from installing the App, resolved to a repository's id. What comes
+# in is a name or a pair of ids, and that decides what is public: a name
+# typed into a public issue is public already, so a run given one prints
+# it and names it in its answers; a repository given by the installation's
+# and the repository's ids may be private and was named on no issue, so
+# its name never reaches this log, the run's inputs or the issue: the
+# App's own JWT mints a metadata-only token for that one repository, the
+# id is resolved to a name, the name, the owner's, the requester's and the
+# default branch's are masked before anything else can print them, and
+# the answers say "your repository" (SAID, with the links left out); the
+# head commit the checkout prints names nothing. The names stay inside
+# this one job, so the environment carries them (one sed line sets the
+# three); only a job output, which GitHub drops when it holds a masked
+# value, could not. Both paths bring the requester, the issue's author,
+# an administrator by the check adopt.yml made, which matters for the
+# copy's CODEOWNERS. Every answer goes on the issue: a refusal is a
+# comment that closes it, and a failure is a red run that says so there.
+# A broken Setup App of the front door's is told to the owner. The rest
+# holds as before: the template's token is read-only and revoked right
+# after the one checkout, the repository is checked out at depth one on
+# its qualified default branch, git's messages stay out of this public
+# log, the Setup App's token is minted after the push and revoked right
+# after the settings, and two requests for one repository are settled by
+# the push of symphony/adopt, which only one of them can make. A
+# repository with no commit yet first gets the commit GitHub's own "Add a
+# README file" makes, and is then adopted like any repository with a
+# README alone; the protocol alone is refused it, since it has no code to
+# go beside. A repository adopted already is refused on both paths before
+# anything is staged, by one rule (scripts/adopted.py asks
+# sweep.is_adopted), since a name typed on the form meets none of the
+# installation path's checks, and a second adoption would put the
+# template's files over the repository's own or, for the protocol alone,
+# bring back what it took out; the Setup App, which both paths need, then
+# uninstalls itself as after an adoption. And apply refuses an adoption
+# that could not write docs/agents/PROTOCOL.md, the one file that rule
+# reads, so every adoption made is one the next request knows.
 
 on:
   workflow_call:
@@ -91,24 +81,6 @@ on:
         type: string
         required: false
         default: run
-  workflow_dispatch:
-    inputs:
-      installation_id:
-        description: The App's installation that holds the repository
-        type: string
-        required: true
-      repository_id:
-        description: The repository's numeric id, never its name
-        type: string
-        required: true
-      mode:
-        type: choice
-        options: [new, existing]
-        required: true
-      metrics:
-        type: choice
-        options: ["on", "off"]
-        default: "on"
 
 permissions:
   issues: write
@@ -120,10 +92,9 @@ jobs:
     timeout-minutes: 15
     # Keyed on the request and the repository, so an installation's several
     # repositories run side by side and two requests for one repository
-    # both run, the push of symphony/adopt settling them; on the sweep's path
-    # two dispatches for one repository are the same work.
+    # both run, the push of symphony/adopt settling them.
     concurrency:
-      group: adopt-run-${{ inputs.issue || 'sweep' }}-${{ inputs.repository_id || inputs.repository }}
+      group: adopt-run-${{ inputs.issue }}-${{ inputs.repository_id || inputs.repository }}
       cancel-in-progress: false
     env:
       ISSUE: ${{ inputs.issue }}
@@ -133,13 +104,13 @@ jobs:
           path: start
           persist-credentials: false
 
-      # By name from the form; by ids from the sweep or from a form that
-      # came from the install, resolved with a metadata-only token of the
-      # App's own JWT and masked at once. Both go through adopt.py name,
-      # which refuses a name that is not OWNER/NAME or is one of the front
-      # door's own repositories. SOURCE is how the request came (an issue
-      # or the installation alone), SAID how the answers name the
-      # repository.
+      # By name from the form, or by ids from a form that came from the
+      # install, resolved with a metadata-only token of the App's own JWT
+      # and masked at once. Both go through adopt.py name, which refuses a
+      # name that is not OWNER/NAME or is one of the front door's own
+      # repositories. SAID is how the answers name the repository;
+      # KIND_READ says whether the kind came from the tree, which the step
+      # that reads it sets.
       - name: Name the repository
         env:
           REPOSITORY: ${{ inputs.repository }}
@@ -149,13 +120,7 @@ jobs:
           APP_ID: ${{ vars.SDLC_APP_ID }}
           APP_PRIVATE_KEY: ${{ secrets.SDLC_APP_PRIVATE_KEY }}
         run: |
-          if [ -n "$ISSUE" ]; then
-            echo "SOURCE=issue" >> "$GITHUB_ENV"
-            echo "KIND_READ=false" >> "$GITHUB_ENV"
-          else
-            echo "SOURCE=installation" >> "$GITHUB_ENV"
-            echo "KIND_READ=true" >> "$GITHUB_ENV"
-          fi
+          echo "KIND_READ=false" >> "$GITHUB_ENV"
           if [ -n "$REPOSITORY" ]; then
             named=public
           else
@@ -245,30 +210,14 @@ jobs:
           # A repository given by ids keeps its branch's name too: masked,
           # at the price of that word wherever else the log says it. The
           # commit the checkout prints is not, and names nothing. The name
-          # goes into a URL as the sweep puts it, encoded.
+          # goes into a URL encoded, as one path segment.
           if [ "$NAMED" = masked ]; then
             echo "::add-mask::$branch"
           fi
           encoded="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$branch")"
-          # The sweep names nobody: the requester is the owner of a user's
-          # repository, or the first direct administrator of an
-          # organization's, and the organization itself when none is
-          # listed, which the pull request's note says.
-          if [ -z "$REQUESTER" ]; then
-            requester="$OWNER"
-            if [ "$(sed -n 's/^owner_type=//p' "$RUNNER_TEMP/target")" = Organization ]; then
-              found="$(gh api "repos/$TARGET/collaborators?affiliation=direct&per_page=100" --jq 'first(.[] | select(.permissions.admin)) | .login // empty' 2>/dev/null || true)"
-              [ -n "$found" ] && requester="$found"
-            fi
-            # The runner prints the job's environment in every step's
-            # header, so the login is masked like the names.
-            echo "::add-mask::$requester"
-            echo "REQUESTER=$requester" >> "$GITHUB_ENV"
-          fi
           # A repository with no commit names a default branch and has none,
           # and a pull request needs one to go into. Asked for one on the
-          # form (the sweep never offers one: scripts/sweep.py, no commit),
-          # the run first makes the commit GitHub's own "Add a README file"
+          # form, the run first makes the commit GitHub's own "Add a README file"
           # makes, a README.md holding the repository's name, through the
           # contents API, so the commit is the App's and GitHub signs it;
           # from there it is a repository with a README alone, read and
@@ -310,14 +259,14 @@ jobs:
               exit 0
             fi
           fi
-          # Adopted already, by the sweep's own rule (docs/agents/PROTOCOL.md
-          # on the default branch, asked through sweep.is_adopted): the sweep
-          # and the installation's path pass such a repository over, and a
-          # name typed on the form reaches this run by neither, so it asks
-          # here, on every path. A second adoption would put the template's
+          # Adopted already, by one rule (docs/agents/PROTOCOL.md on the
+          # default branch, asked through sweep.is_adopted): the
+          # installation's path passes such a repository over, and a name
+          # typed on the form reaches this run by no such check, so it asks
+          # here, on both paths. A second adoption would put the template's
           # files over the ones the repository has made its own since, or,
           # for the protocol alone, bring back what it has taken out. One
-          # answer, whatever the kind it had and on every path, names
+          # answer, whatever the kind it had and on both paths, names
           # nothing of the repository and says what to do instead: where
           # the protocol's later releases come from, how to adopt it again
           # (the other kind, or what its pull request left out, both by
@@ -328,8 +277,7 @@ jobs:
           # named repository adopted already. It comes before the branch
           # symphony/adopt, so a merged adoption that kept its branch is
           # told that it is adopted rather than sent to delete the branch
-          # and ask again. A refusal here is one the sweep would have made
-          # itself, so on its path nothing is told to the repository.
+          # and ask again.
           adopted=0
           python3 start/scripts/adopted.py "$TARGET" 2> "$RUNNER_TEMP/adopted-said" || adopted=$?
           case "$adopted" in
@@ -349,10 +297,9 @@ jobs:
               bash start/scripts/refuse.sh "Nothing was done: $SAID already has a branch symphony/adopt (or sdlc/adopt, its old name), from an earlier request. Delete it${BRANCHES_LINK:+ at $BRANCHES_LINK}, then open a new request with the form; this one is closed."
             fi
           fi
-          # The form may leave the kind to the run: read from the tree as
-          # the sweep reads it, with the same rule (scripts/sweep.py); a
-          # tree that cannot be read is an existing repository, which
-          # overwrites nothing.
+          # The form may leave the kind to the run: read from the tree, by
+          # scripts/sweep.py's rule; a tree that cannot be read is an
+          # existing repository, which overwrites nothing.
           mode="$MODE_GIVEN"
           if [ "$mode" = read ]; then
             gh api "repos/$TARGET/git/trees/$encoded?recursive=1" > "$RUNNER_TEMP/tree.json" 2>/dev/null || echo '{}' > "$RUNNER_TEMP/tree.json"
@@ -452,7 +399,7 @@ jobs:
           applied=0
           python3 start/scripts/adopt.py apply --template template --target target \
             --repo "$TARGET" --creator "$REQUESTER" --owner-type "$OWNER_TYPE" \
-            --default-branch "$DEFAULT_BRANCH" --mode "$MODE" --metrics "$METRICS" --source "$SOURCE" \
+            --default-branch "$DEFAULT_BRANCH" --mode "$MODE" --metrics "$METRICS" \
             --manifest "$RUNNER_TEMP/manifest.json" "${spec[@]}" || applied=$?
           case "$applied" in
             0) ;;
@@ -507,9 +454,7 @@ jobs:
           fi
           basic="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           echo "::add-mask::$basic"
-          if git -c http.extraheader="AUTHORIZATION: basic $basic" push --quiet origin HEAD:refs/heads/symphony/adopt > /dev/null 2>> "$said"; then
-            echo "PUSHED=true" >> "$GITHUB_ENV"
-          else
+          if ! git -c http.extraheader="AUTHORIZATION: basic $basic" push --quiet origin HEAD:refs/heads/symphony/adopt > /dev/null 2>> "$said"; then
             # Two requests for one repository at once: the first push made
             # the branch, and this one was turned away as not fast-forward.
             taken="$(for b in symphony/adopt sdlc/adopt; do gh api "repos/$TARGET/git/matching-refs/heads/$b" --jq "[.[] | select(.ref == \"refs/heads/$b\")] | length" 2>/dev/null || echo 0; done | awk '{s+=$1} END {print s+0}')"
@@ -519,55 +464,6 @@ jobs:
               bash "$refuse" "Nothing was done: GitHub refused the push of the branch symphony/adopt to $SAID; a ruleset or a branch protection there may stand in its way. Let the App push that branch, then open a new request with the form; this one is closed."
             fi
           fi
-
-      # The sweep's path has no issue to answer, and the sweep would try
-      # again every ten minutes: a refusal reached after the token was
-      # minted (the push turned away by a ruleset of theirs, every file
-      # there already) is told to the repository in one issue of the
-      # App's, which the sweep reads and skips while it is open; a failure
-      # after the push is told the same way, since the branch left behind
-      # would read as offered to every later sweep. A push another run won
-      # is no refusal of theirs and gets no issue.
-      - name: Tell the repository when the sweep's adoption was refused or failed
-        if: always() && env.SOURCE == 'installation' && steps.target-token.outcome == 'success' && (env.REFUSED == 'true' || job.status == 'failure')
-        env:
-          GH_TOKEN: ${{ steps.target-token.outputs.token }}
-          TARGET: ${{ env.TARGET }}
-          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          # The sweep passes an adopted repository over by its own checks,
-          # so one adopted between the sweep and this run is told nothing.
-          if [ "${ADOPTED:-}" = true ]; then
-            echo "the repository is adopted already, which the sweep reads for itself; nothing to tell"
-            exit 0
-          fi
-          taken="$(for b in symphony/adopt sdlc/adopt; do gh api "repos/$TARGET/git/matching-refs/heads/$b" --jq "[.[] | select(.ref == \"refs/heads/$b\")] | length" 2>/dev/null || echo 0; done | awk '{s+=$1} END {print s+0}')"
-          if [ "$taken" != 0 ] && [ "${PUSHED:-}" != true ]; then
-            echo "another run holds the branch; nothing to tell"
-            exit 0
-          fi
-          # A failure after this run's own push leaves a branch with no
-          # pull request, which the sweep would read as offered for good:
-          # the issue says to delete it.
-          if [ ! -f "$RUNNER_TEMP/refusal" ]; then
-            printf '%s\n' "something went wrong in the run that tried, which stopped; the front door's owner can read the run at $RUN. Delete the branch symphony/adopt here if the run pushed it before it stopped, then close this issue and the front door tries again." > "$RUNNER_TEMP/refusal"
-          fi
-          title="Symphony could not open its pull request"
-          # The same question scripts/sweep.py asks, the same way: the
-          # App's own open issues, by its bot's login, the one with this
-          # title and not a pull request.
-          open="$(gh api "repos/$TARGET/issues?state=open&creator=${SLUG}%5Bbot%5D&per_page=100" \
-            --jq '[.[] | select(.title == "Symphony could not open its pull request" and .pull_request == null)] | length' 2>/dev/null || echo 0)"
-          if [ "$open" != 0 ]; then
-            echo "the repository has the issue already"
-            exit 0
-          fi
-          printf '%s\n\n%s\n' \
-            "The Symphony App was installed on this repository, which its front door (https://github.com/OpenSpineConsortium/symphony-start) takes as a request for its adoption pull request, and the run that tried stopped: $(cat "$RUNNER_TEMP/refusal" 2>/dev/null || echo "see the front door's README")" \
-            "Where it says to open a new request with the form, you may; or put right what stood in the way and close this issue, and the front door tries again within about ten minutes. To decline the adoption and keep the App, write off in .github/symphony-adopt on the default branch." \
-            > "$RUNNER_TEMP/refusal-issue.md"
-          gh issue create --repo "$TARGET" --title "$title" --body-file "$RUNNER_TEMP/refusal-issue.md" > /dev/null
-          echo "the repository was told"
 
       # Only whether the Setup App's key is set reaches the shell, never
       # the key; without the pair, the pull request says the front door
@@ -666,12 +562,11 @@ jobs:
       # do with its own JWT, when its installation reaches this repository
       # alone; one that reaches more stays, and the pull request says so.
       # A request refused because the repository is adopted already is done
-      # too, with nothing left for the Setup App to do there, so on the
-      # form's paths, which require it, it goes the same way, as the answer
-      # says; there is no report to mark then, and a front door without the
-      # Setup App has nothing to uninstall.
+      # too, with nothing left for the Setup App to do there, so it goes
+      # the same way, as the answer says; there is no report to mark then,
+      # and a front door without the Setup App has nothing to uninstall.
       - name: Uninstall the Setup App when this was its only repository
-        if: (env.REFUSED != 'true' && env.SETTINGS == 'applied') || (env.ADOPTED == 'true' && env.SOURCE == 'issue')
+        if: (env.REFUSED != 'true' && env.SETTINGS == 'applied') || env.ADOPTED == 'true'
         env:
           APP_ID: ${{ vars.SDLC_SETUP_APP_ID }}
           APP_PRIVATE_KEY: ${{ secrets.SDLC_SETUP_APP_PRIVATE_KEY }}
@@ -858,7 +753,7 @@ jobs:
           fi
 
       - name: Answer the request and close it
-        if: env.REFUSED != 'true' && inputs.issue != '' && inputs.answer != 'caller'
+        if: env.REFUSED != 'true' && inputs.answer != 'caller'
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET: ${{ env.TARGET }}
@@ -887,9 +782,9 @@ jobs:
           gh issue close "$ISSUE" --repo "$GITHUB_REPOSITORY" --reason completed
 
       # The front door's own Setup App not working is the owner's to fix,
-      # on either path, and a red run is reported only to whoever started
-      # it, so the owner is told in an issue here: one, opened the first
-      # time and commented on after.
+      # and a red run is reported only to whoever started it, so the owner
+      # is told in an issue here: one, opened the first time and commented
+      # on after.
       - name: Tell the owner when this front door's Setup App is not working
         if: env.REFUSED != 'true' && env.SETTINGS == 'front-door-broken'
         env:
@@ -912,7 +807,7 @@ jobs:
       # A run that had the Setup App's token may have applied settings
       # before it stopped, and says so.
       - name: Say so when something failed
-        if: failure() && env.REFUSED != 'true' && inputs.issue != '' && inputs.answer != 'caller'
+        if: failure() && env.REFUSED != 'true' && inputs.answer != 'caller'
         env:
           GH_TOKEN: ${{ github.token }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

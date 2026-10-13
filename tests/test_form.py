@@ -148,7 +148,7 @@ class ThePrivacyStatement(unittest.TestCase):
         opened = re.match(r"# .+\n\nVersion (\d+), \d{4}-\d{2}-\d{2}\. This text is also at ", privacy)
         self.assertTrue(opened)
         changes = privacy[privacy.index("\n## Changes\n"):]
-        noted = [int(number) for number in re.findall(r"^Version (\d+) (?:says|adds)\b", changes, re.MULTILINE)]
+        noted = [int(number) for number in re.findall(r"^Version (\d+) (?:says|adds|removes)\b", changes, re.MULTILINE)]
         self.assertEqual(noted, list(range(int(opened.group(1)), 1, -1)))
 
 
@@ -226,11 +226,12 @@ class TheWorkflows(unittest.TestCase):
         self.assertIn("RESULT: ${{ needs.adopt_each.result }}", text)
         self.assertNotIn("github.event.issue.body", text[text.index("  answer:"):])
         run = (ROOT / ".github/workflows/adopt-run.yml").read_text(encoding="utf-8")
-        call = run.split("  workflow_dispatch:\n")[0]
+        self.assertNotIn("workflow_dispatch", run)
+        call = run.split("\npermissions:\n")[0]
         for name in ("installation_id", "repository_id", "merge", "answer"):
             self.assertIn(f"      {name}:\n", call)
-        self.assertIn("group: adopt-run-${{ inputs.issue || 'sweep' }}-${{ inputs.repository_id || inputs.repository }}", run)
-        self.assertIn('if [ -n "$ISSUE" ]; then\n            echo "SOURCE=issue"', run)
+        self.assertIn("group: adopt-run-${{ inputs.issue }}-${{ inputs.repository_id || inputs.repository }}", run)
+        self.assertIn('run: |\n          echo "KIND_READ=false" >> "$GITHUB_ENV"', run)
         self.assertIn('echo "NAMED=$named" >> "$GITHUB_ENV"', run)
         self.assertIn('if [ "$NAMED" = masked ]; then\n            echo "::add-mask::$branch"', run)
         self.assertIn('[ -n "$REQUESTER_GIVEN" ] && echo "::add-mask::$REQUESTER_GIVEN"', run)
@@ -240,8 +241,8 @@ class TheWorkflows(unittest.TestCase):
         self.assertIn('echo "SAID=$target" >> "$GITHUB_ENV"', run)
         self.assertNotIn('refuse.sh "Nothing was done: $TARGET', run)
         self.assertNotIn('"$refuse" "Nothing was done: $TARGET', run)
-        self.assertIn("if: env.REFUSED != 'true' && inputs.issue != '' && inputs.answer != 'caller'", run)
-        self.assertIn("if: failure() && env.REFUSED != 'true' && inputs.issue != '' && inputs.answer != 'caller'", run)
+        self.assertIn("if: env.REFUSED != 'true' && inputs.answer != 'caller'", run)
+        self.assertIn("if: failure() && env.REFUSED != 'true' && inputs.answer != 'caller'", run)
 
     def test_the_run_merges_when_asked_and_the_setup_app_uninstalls_itself(self):
         """Merge for me: the run merges, or arms auto-merge where a ruleset
@@ -259,8 +260,8 @@ class TheWorkflows(unittest.TestCase):
         self.assertLess(merge, run.index("name: Answer the request and close it"))
         self.assertIn('merged) merged=" It is merged, as you asked." ;;', run)
         uninstall = run.index("name: Uninstall the Setup App when this was its only repository")
-        self.assertIn("if: (env.REFUSED != 'true' && env.SETTINGS == 'applied') || (env.ADOPTED == 'true' && env.SOURCE"
-                      " == 'issue')", run[uninstall:])
+        self.assertIn("if: (env.REFUSED != 'true' && env.SETTINGS == 'applied') || env.ADOPTED == 'true'",
+                      run[uninstall:])
         self.assertLess(run.index("name: Revoke the Setup App's token"), uninstall)
         self.assertLess(uninstall, run.index("name: Write the pull request's text"))
         self.assertIn('-X DELETE -H "Authorization: Bearer $jwt" -H "$accept" "https://api.github.com/app/installations/$id"', run)
@@ -318,7 +319,7 @@ class TheWorkflows(unittest.TestCase):
         that preselects the account and the repository by id and carries
         the name as state, which GitHub returns to the form; the
         installation path's one refusal names the Setup App too, with its
-        install link, and the sweep is left as it was."""
+        install link; there is no third path, since the sweep is gone."""
         text = (ROOT / ".github/workflows/adopt.yml").read_text(encoding="utf-8")
         steps = ("name: Say whether this front door has the Setup App", "id: setup-token", "id: setup-probe",
                  "name: Check that the Setup App is installed on the repository")
@@ -345,8 +346,7 @@ class TheWorkflows(unittest.TestCase):
         refusal = refusal[:refusal.index("\n")]
         self.assertIn("or Symphony Setup is not installed on it", refusal)
         self.assertIn(SETUP_APP_INSTALL, refusal)
-        sweep = (ROOT / ".github/workflows/sweep.yml").read_text(encoding="utf-8")
-        self.assertNotIn("SDLC_SETUP_APP", sweep)
+        self.assertFalse((ROOT / ".github/workflows/sweep.yml").exists())
 
     def test_the_settings_are_applied_after_the_push_and_before_the_pull_request(self):
         text = (ROOT / ".github/workflows/adopt-run.yml").read_text(encoding="utf-8")

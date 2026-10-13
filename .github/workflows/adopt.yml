@@ -5,15 +5,15 @@ name: Adopt
 # OpenSpineConsortium/symphony-template, stays internal to its enterprise, so
 # nobody outside it can press "Use this template"; this public repository
 # is the front door instead. A person installs the Symphony App on
-# their repository and either opens the form .github/ISSUE_TEMPLATE/adopt.yml,
-# which labels the issue adopt and starts this workflow, or does nothing
-# more and lets the sweep (sweep.yml) find the installation. The install
+# their repository and opens the form .github/ISSUE_TEMPLATE/adopt.yml,
+# which labels the issue adopt and starts this workflow. The install
 # itself ends on the form: the App's Setup URL is the form, and GitHub
 # sends the person there with the installation's number filled in, so the
-# form carries either a repository's name or that number. This workflow
-# is the issue path: it reads the form, checks the author and the App's
-# reach, answers what it refuses, and then calls adopt-run.yml, which does
-# the adoption itself for both paths and whose header says how.
+# form carries either a repository's name or that number, and installing
+# the App alone asks for nothing. This workflow reads the form, checks
+# the author and the App's reach, answers what it refuses, and then calls
+# adopt-run.yml, which does the adoption itself for both of the form's
+# paths and whose header says how.
 #
 # Both Apps are required on the form's two paths: SymphonyBoard, which
 # opens the pull request, and Symphony Setup, which applies the
@@ -27,9 +27,7 @@ name: Adopt
 # the person back to the form with the repository filled in, unless it
 # is adopted already, which is the answer then, since the run would
 # refuse it anyway; and an installation's request takes only a
-# repository the Setup App reaches too. The sweep (sweep.yml) is the
-# exception: installing the App alone is its request, and it adopts
-# without the Setup App.
+# repository the Setup App reaches too.
 #
 # Anyone can open an issue here, so everything the issue says is data: the
 # body reaches scripts/adopt.py parse through env:, never through an
@@ -48,8 +46,8 @@ name: Adopt
 # App's own JWT, or the Setup App's when the number is that App's, since
 # both send the person to the form (scripts/resolve.py): the installation's
 # token lists the repositories it reaches, and the newest one with no
-# adoption yet (by the sweep's rules, asked by id, or with no commit at
-# all, whose first commit the run makes) that the author
+# adoption yet (by scripts/sweep.py's rules, asked by id, or with no
+# commit at all, whose first commit the run makes) that the author
 # administers and the Setup App is installed on is adopted, one per
 # press, since one press that reached every repository of an account
 # merged the adoption into eight on 2026-10-11; the person presses Create
@@ -65,9 +63,8 @@ name: Adopt
 # planned and ends the run green; anything else that fails comments with
 # the run's link and leaves the issue open for the owner. The trigger is
 # opened and reopened, never edited: a refused request is opened again
-# with the form, and one reopened is answered again, so a closed refusal
-# cannot be held open to keep its repository on the sweep's pending list;
-# one run handles one issue at a time. Until the owner sets
+# with the form, and one reopened is answered again; one run handles one
+# issue at a time. Until the owner sets
 # the variable SDLC_APP_ID and the secret SDLC_APP_PRIVATE_KEY (README.md,
 # For the owner), every request is answered that the front door is not
 # set up yet, and stays open so its run can be started again once it is;
@@ -363,9 +360,8 @@ jobs:
         run: |
           gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "Something went wrong while handling this request, and it stopped; the run is $RUN. This issue stays open for the owner of this repository to look at."
 
-  # The adoption itself, shared with the sweep; the secrets it needs are
-  # this repository's own. A named repository is one run, which answers
-  # the issue itself.
+  # The adoption itself; the secrets it needs are this repository's own.
+  # A named repository is one run, which answers the issue itself.
   adopt:
     needs: request
     if: needs.request.result == 'success' && needs.request.outputs.refused != 'true' && needs.request.outputs.repository != ''

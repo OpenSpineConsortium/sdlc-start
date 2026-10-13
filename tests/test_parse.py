@@ -112,8 +112,8 @@ class GoodForms(unittest.TestCase):
 
 
 class TheNameCommand(unittest.TestCase):
-    """The sweep's path brings no form; the name it brings is checked the
-    way the form's would be and printed in parse's shape."""
+    """A name the run resolved from the ids the form carried is checked the
+    way one typed on the form would be and printed in parse's shape."""
 
     def test_a_name_github_allows(self):
         code, out, err = run(["name", "Octo-Org/my.project_2"])

@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Say whether a repository has an adoption already, by the sweep's own rule.
+"""Say whether a repository has an adoption already, by the one rule.
 
-The sweep (scripts/sweep.py) passes over a repository whose default branch
-holds docs/agents/PROTOCOL.md, which every adoption from this front door
-brings, in either kind, and every copy made with "Use this template"
-carries; the installation's path of the form asks the same through
-sweep.unadopted (scripts/resolve.py). A repository named on the form
-reaches .github/workflows/adopt-run.yml by neither, and a second adoption
-would put the template's files over the ones the repository has made its
-own since (its CLAUDE.md and checkpoint, its README, its goal and memory,
-its metrics switch), or, for the protocol alone, bring back what it has
-taken out, so the run asks this before it reads the kind or stages a
-file, on every path: one rule, sweep.is_adopted itself, for the three
-ways a request arrives. scripts/adopt.py apply refuses an adoption that
-could not write that file, so no adoption is made that the rule misses.
+The installation's path of the form passes over a repository whose
+default branch holds docs/agents/PROTOCOL.md, which every adoption from
+this front door brings, in either kind, and every copy made with "Use
+this template" carries (sweep.unadopted, asked by scripts/resolve.py). A
+repository named on the form reaches .github/workflows/adopt-run.yml by
+no such check, and a second adoption would put the template's files over
+the ones the repository has made its own since (its CLAUDE.md and
+checkpoint, its README, its goal and memory, its metrics switch), or, for
+the protocol alone, bring back what it has taken out, so the run asks
+this before it reads the kind or stages a file, on both paths: one rule,
+sweep.is_adopted itself, for the two ways a request arrives.
+scripts/adopt.py apply refuses an adoption that could not write that
+file, so no adoption is made that the rule misses.
 
 Exit 0 when the repository has no adoption yet, 3 when it has one, which
 the run answers with one message that names nothing of it, 1 when GitHub
@@ -39,7 +39,7 @@ import adopt  # noqa: E402
 import sweep  # noqa: E402
 
 ADOPTED = 3
-# The answer to a request for a repository adopted already, on every path:
+# The answer to a request for a repository adopted already, on both paths:
 # it names nothing of the repository, holds for either kind it took, and
 # says what to do instead.
 ANSWER = (
@@ -61,7 +61,7 @@ ANSWER = (
 
 
 def parse_args(argv):
-    parser = argparse.ArgumentParser(description="Whether a repository has an adoption already, by the sweep's rule.")
+    parser = argparse.ArgumentParser(description="Whether a repository has an adoption already, by the one rule.")
     parser.add_argument("repository", nargs="?", help="OWNER/NAME, as scripts/adopt.py name printed it")
     parser.add_argument("--answer", action="store_true",
                         help="print the answer to a request for a repository adopted already, and ask nothing")

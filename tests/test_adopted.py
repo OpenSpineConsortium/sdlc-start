@@ -1,10 +1,10 @@
-"""A repository adopted already is refused on every path, the named one too.
+"""A repository adopted already is refused on both paths, the named one too.
 
-The sweep and the installation's path of the form pass over a repository
-whose default branch holds docs/agents/PROTOCOL.md (scripts/sweep.py), and
-a name typed on the form reaches the run by neither, so the run asks
+The installation's path of the form passes over a repository whose
+default branch holds docs/agents/PROTOCOL.md (scripts/sweep.py), and a
+name typed on the form reaches the run by no such check, so the run asks
 scripts/adopted.py, which asks sweep.is_adopted itself, before it reads the
-kind or stages a file. The script's answer must be the sweep's, read with
+kind or stages a file. The script's answer must be that path's, read with
 the repository's own token, and nothing it prints may name the repository,
 since the run's log is public. The step of .github/workflows/adopt-run.yml
 that asks it is run here for real, with gh answered from a table and the
@@ -49,7 +49,6 @@ PROTOCOL = f"/repos/{REPOSITORY}/contents/docs/agents/PROTOCOL.md"
 RUN = ROOT / ".github/workflows/adopt-run.yml"
 ADOPT = ROOT / ".github/workflows/adopt.yml"
 TARGET_STEP = "name: Read the repository, and stop when it cannot take the pull request"
-TELL_STEP = "name: Tell the repository when the sweep's adoption was refused or failed"
 ANSWER = "Nothing was done: the repository is adopted already."
 
 
@@ -95,30 +94,29 @@ class TheScript(unittest.TestCase):
         code, out, err = ask(FakeGitHub(404))
         self.assertEqual((code, out, err), (0, "the repository has no adoption yet\n", ""))
 
-    def test_the_answer_is_the_sweeps_own_rule(self):
-        """One rule for the three paths: the script decides by
-        sweep.is_adopted, and the same answers make the sweep skip the
-        repository as adopted."""
+    def test_the_answer_is_the_installation_paths_own_rule(self):
+        """One rule for the two paths: the script decides by
+        sweep.is_adopted, and the same answers make the installation's path
+        pass the repository over as adopted."""
         for found, code in ((True, adopted.ADOPTED), (False, 0)):
             with self.subTest(found=found), mock.patch.object(sweep, "is_adopted", return_value=found) as rule:
                 self.assertEqual(ask(FakeGitHub())[0], code)
                 (github, repository), _ = rule.call_args
                 self.assertEqual((github.token, repository), (TOKEN, {"full_name": REPOSITORY}))
         record = {"id": 1, "full_name": REPOSITORY, "owner": {"login": OWNER}, "default_branch": "main"}
-        settings = sweep.Settings("OpenSpineConsortium", frozenset(), 0, 420)
 
         def answers(status):
             def transport(method, url, headers, body):
                 path = url.removeprefix(sweep.API)
                 if path.endswith("/branches/main"):
                     return 200, {}, b"{}"
-                if "/git/matching-refs/" in path or "/pulls?" in path or "/issues?" in path:
+                if "/git/matching-refs/" in path:
                     return 200, {}, b"[]"
                 return FakeGitHub(status)(method, url, headers, body)
             return transport
 
-        self.assertEqual(sweep.why_skipped(sweep.GitHub("t", answers(200)), record, settings, "bot"), sweep.ADOPTED)
-        self.assertNotEqual(sweep.why_skipped(sweep.GitHub("t", answers(404)), record, settings, "bot"), sweep.ADOPTED)
+        self.assertEqual(sweep.unadopted(sweep.GitHub("t", answers(200)), [record]), [])
+        self.assertEqual(sweep.unadopted(sweep.GitHub("t", answers(404)), [record]), [record])
 
     def test_a_refusal_that_is_not_a_clean_404_is_an_error_that_names_nothing(self):
         for github in (FakeGitHub(500), FakeGitHub(403), FakeGitHub(raising="GitHub could not be reached (URLError)")):
@@ -382,19 +380,6 @@ class TheRunsCheck(unittest.TestCase):
                       ' "$(python3 start/scripts/adopted.py --answer)"\n     exit 0 ;;', script)
         self.assertNotIn(ANSWER, script, "the words are the script's, in one place")
 
-    def test_on_the_sweeps_path_an_adopted_repository_is_told_nothing(self):
-        """The sweep's own checks pass an adopted repository over, so the
-        issue the App opens for a refused sweep is never opened for one."""
-        tell = step_script(self.text, TELL_STEP)
-        self.assertLess(tell.index('if [ "${ADOPTED:-}" = true ]; then'), tell.index("gh issue create"))
-        code = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", tell],
-                              env={"PATH": f"{self.root / 'bin'}:{os.environ.get('PATH', '')}", "ADOPTED": "true",
-                                   "GH_LOG": str(self.root / "runner/tell.log"), "TARGET": REPOSITORY},
-                              capture_output=True, text=True)
-        self.assertEqual(code.returncode, 0, code.stdout + code.stderr)
-        self.assertIn("nothing to tell", code.stdout)
-        self.assertFalse((self.root / "runner/tell.log").exists(), "gh was never called")
-
 
 UNINSTALL_STEP = "name: Uninstall the Setup App when this was its only repository"
 STAGE_STEP = "name: Stage the adoption and write the pull request's title"
@@ -485,7 +470,7 @@ def stage_environ(runner, status, said=REPOSITORY):
     """The stage step's environment on a request from the form, with apply
     ending in status."""
     return {"MODE": "existing", "KIND_READ": "true", "TARGET": REPOSITORY, "REQUESTER": OWNER,
-            "OWNER_TYPE": "User", "DEFAULT_BRANCH": "main", "METRICS": "on", "SOURCE": "issue",
+            "OWNER_TYPE": "User", "DEFAULT_BRANCH": "main", "METRICS": "on",
             "RUNNER_TEMP": str(runner), "GITHUB_ENV": str(runner / "env"), "ISSUE": "7",
             "ISSUE_TOKEN": "issue-token", "GITHUB_REPOSITORY": "OpenSpineConsortium/symphony-start",
             "SAID": said, "GH_LOG": str(runner / "gh.log"), "APPLY_STATUS": str(status)}
@@ -521,8 +506,7 @@ class TheSetupAppAfterTheRefusal(unittest.TestCase):
     def test_the_step_runs_after_a_refusal_as_adopted_on_the_forms_paths(self):
         step = self.text[self.text.index(UNINSTALL_STEP):]
         condition = step[:step.index("\n        env:")].split("\n")[1].strip()
-        self.assertEqual(condition, "if: (env.REFUSED != 'true' && env.SETTINGS == 'applied') || (env.ADOPTED =="
-                                    " 'true' && env.SOURCE == 'issue')")
+        self.assertEqual(condition, "if: (env.REFUSED != 'true' && env.SETTINGS == 'applied') || env.ADOPTED == 'true'")
 
     def test_a_setup_app_on_this_repository_alone_uninstalls_itself(self):
         code, env, calls, out = self.uninstall()
@@ -591,7 +575,6 @@ class TheStageStep(unittest.TestCase):
                 self.assertIn(["issue", "close", "7", "--repo", "OpenSpineConsortium/symphony-start", "--reason",
                                "not planned"], calls)
                 self.assertFalse([call for call in calls if call[:2] == ["adopt.py", "body"]])
-                self.assertIn("docs/agents/PROTOCOL.md", (self.runner / "refusal").read_text(encoding="utf-8"))
 
     def test_any_other_failure_of_apply_fails_the_run_without_an_answer(self):
         code, env, calls, out = self.stage(1)
