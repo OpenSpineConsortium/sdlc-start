@@ -1,6 +1,6 @@
 # Symphony GitHub Apps privacy statement
 
-Version 7, 2026-10-13. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
+Version 8, 2026-10-16. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
 The Symphony browser extension has a statement of its own, at https://openspineconsortium.com/symphony/privacy.html.
 
 Who makes the Apps: Gregory Schwing, trading as OpenSpineConsortium ("the developer"). Questions:
@@ -203,6 +203,53 @@ theirs on their commits whatever the repository says sets `SDLC_METRICS` to `off
 environment. Lines already collected stay in the dataset under the hash; they carry nothing that
 names you.
 
+## The control panel
+
+The control panel is a page of the developer's site, https://openspineconsortium.com/symphony/control/,
+and the cost page beside it, https://openspineconsortium.com/symphony/cost.html. Both are static
+files that work in your browser with a GitHub token you give them, and they talk to GitHub's own API
+as you and, only when you sign in with GitHub, to the sign-in service described below. They read
+your own account's login (to say who is signed in), your repository's board (the file STATE.md on
+the branch `board`), its open issues and their labels, the worker files under
+`.github/symphony/workers/`, its open pull requests and the check runs on their heads, its Actions
+runs, the repository's own record (its default branch, whether it is private, its topics and, for one
+you name, its numeric id and its owner's, to build the App's install link with that repository
+selected), on the cost page the file METRICS.json on the branch `metrics`, and, when you press "Find
+my Symphony repositories", the names and topics of the repositories your token reaches, up to three
+hundred of the most recently pushed, to keep the ones carrying the topic symphony. Only when you
+press the button that says so, they write what GitHub's own pages would: an issue (a task, an "Add a
+worker" issue, or one that mentions @claude), a comment, a label on an issue (and the label itself
+when it is not there yet), a workflow run started by hand, or a merge.
+
+The token is one of two kinds, and either way it stays in your browser. A fine-grained personal
+access token you make on GitHub and paste into the page is kept in the browser's storage until you
+press "Forget the token", or until the tab closes when you did not tick "Keep me signed in". With
+"Sign in with GitHub", GitHub issues, after you allow it on GitHub's own page, a token of
+SymphonyBoard's that acts as you within the App's permissions and your own access on the
+repositories it is installed on, and expires in eight hours; beside it GitHub issues a refresh token,
+valid six months, with which the page renews the token. GitHub sends your browser back to the page
+with a one-time code; the page sends that code, with a one-time secret it made for this sign-in, to
+the sign-in service, a small program of the developer's run on Cloudflare's Workers platform, which
+adds the App's client secret, asks GitHub for the token and hands back the token and the refresh
+token; the page renews the token by sending the service the refresh token the same way, and keeps
+both in the browser's storage as it keeps a pasted token, under the same "Keep me signed in" choice.
+The service keeps nothing: no store, no cookie, and no log of its own of the code, the tokens or
+you; it answers no origin but the site's; and its host's own request logs are turned off, though
+Cloudflare, which carries the request, sees its address and timing under Cloudflare's own privacy
+policy. The developer receives nothing from the pages but what that service passes through in the
+moment: never a token to keep, never a name, never a count. Beside the token, the page keeps in your
+browser the names of the repositories you listed and the plan you chose on the cost page.
+
+The aggregates the collector reads are as the section on field metrics says, whether or not you use
+the pages. The pages never take a Claude token and never show a repository's Claude secret; what
+they start, a worker's run or the Claude workflow's answer to a mention, runs on the token the
+repository holds, as the repository's own workflows do. To stop: press "Forget the token", which
+drops the token and the refresh token from the browser and, for a token from "Sign in with
+GitHub", asks GitHub through the service to revoke the token; a personal access token is revoked
+on GitHub under Settings, Developer settings, Personal access tokens, and the App's authorization,
+which covers every token and refresh token it issued you, under Settings, Applications, Authorized
+GitHub Apps.
+
 ## The App's server, where it is run
 
 SymphonyBoard's webhook server, when the developer turns the webhook on, receives from GitHub each
@@ -254,6 +301,12 @@ Symphony is for people who administer GitHub repositories. It is not directed at
 A new version of this statement is published at https://openspineconsortium.com/symphony/apps-privacy.html
 and in the front door repository, github.com/OpenSpineConsortium/symphony-start, whose PRIVACY.md is
 this text.
+
+Version 8 adds the control panel and the cost page of the developer's site, as the section of that
+name says: pages that work in your browser with a GitHub token you give them, talk to GitHub's API
+as you, and, with "Sign in with GitHub", send GitHub's one-time code to a stateless service of the
+developer's on Cloudflare that answers with the token and a refresh token and keeps nothing. Nothing
+the developer receives or keeps changed.
 
 Version 7 removes the sweep: no workflow on the front door lists SymphonyBoard's installations
 every ten minutes and reads each repository they reach to decide whether to offer an adoption,
