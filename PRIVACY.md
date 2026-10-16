@@ -1,6 +1,6 @@
 # Symphony GitHub Apps privacy statement
 
-Version 8, 2026-10-16. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
+Version 9, 2026-10-16. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
 The Symphony browser extension has a statement of its own, at https://openspineconsortium.com/symphony/privacy.html.
 
 Who makes the Apps: Gregory Schwing, trading as OpenSpineConsortium ("the developer"). Questions:
@@ -231,10 +231,15 @@ valid six months, with which the page renews the token. GitHub sends your browse
 with a one-time code; the page sends that code, with a one-time secret it made for this sign-in, to
 the sign-in service, a small program of the developer's run on Cloudflare's Workers platform, which
 adds the App's client secret, asks GitHub for the token and hands back the token and the refresh
-token; the page renews the token by sending the service the refresh token the same way, and keeps
-both in the browser's storage as it keeps a pasted token, under the same "Keep me signed in" choice.
-The service keeps nothing: no store, no cookie, and no log of its own of the code, the tokens or
-you; it answers no origin but the site's; and its host's own request logs are turned off, though
+token; the page renews the token by sending the service the refresh token the same way. With "Keep
+me signed in" ticked, the page keeps both in the browser's storage until you press "Forget the
+token". Unticked, it keeps the token in the tab's own storage, which goes when the tab closes, and
+the refresh token in the open page's memory alone, never in the browser's storage, so that it goes
+when the tab closes or reloads and the sign-in then ends with its eight-hour token. When a new
+sign-in, or a token you paste, takes the place of a sign-in's token, the page has the service ask
+GitHub to revoke the one it replaced, as "Forget the token" does. The service keeps nothing: no
+store, no cookie, and no log of its own of the code, the tokens or you; it answers no origin but
+the site's; and its host's own request logs are turned off, though
 Cloudflare, which carries the request, sees its address and timing under Cloudflare's own privacy
 policy. The developer receives nothing from the pages but what that service passes through in the
 moment: never a token to keep, never a name, never a count. Beside the token, the page keeps in your
@@ -301,6 +306,12 @@ Symphony is for people who administer GitHub repositories. It is not directed at
 A new version of this statement is published at https://openspineconsortium.com/symphony/apps-privacy.html
 and in the front door repository, github.com/OpenSpineConsortium/symphony-start, whose PRIVACY.md is
 this text.
+
+Version 9 says where a sign-in for one tab keeps its refresh token: in the open page's memory alone,
+never in the browser's storage, so that it goes when the tab closes or reloads and the sign-in then
+ends with its eight-hour token; and that a sign-in's token that a new sign-in or a pasted token
+replaces is revoked through the service, as "Forget the token" revokes one. Nothing the
+developer receives or keeps changed.
 
 Version 8 adds the control panel and the cost page of the developer's site, as the section of that
 name says: pages that work in your browser with a GitHub token you give them, talk to GitHub's API
