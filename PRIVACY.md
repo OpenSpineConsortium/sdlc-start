@@ -1,6 +1,6 @@
 # Symphony GitHub Apps privacy statement
 
-Version 9, 2026-10-16. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
+Version 10, 2026-10-18. This text is also at https://openspineconsortium.com/symphony/apps-privacy.html.
 The Symphony browser extension has a statement of its own, at https://openspineconsortium.com/symphony/privacy.html.
 
 Who makes the Apps: Gregory Schwing, trading as OpenSpineConsortium ("the developer"). Questions:
@@ -32,6 +32,13 @@ repositories it reaches. It subscribes to five event types (issues, issue commen
 pushes and check suites), which GitHub delivers only while the App's webhook is turned on; as this
 statement is written, it is turned off, and the section on the server below applies from the day
 it is turned on. SymphonyBoard never asks for Administration.
+
+On an organization, SymphonyBoard also asks for two organization permissions: Secrets (read and
+write) and Variables (read and write), for the control panel's Tokens page, which saves a Claude
+account's token as one of the organization's Actions secrets when an owner of the organization asks
+it to (the control panel, below). The App itself never reads or writes a secret or a variable: only
+a page you are signed in to does, as you, and GitHub lets it only where you are an owner of the
+organization. GitHub never gives a secret's value back to anyone, the App included.
 
 Symphony Setup asks for two permissions and nothing else: Administration (read and write), for the
 six settings below, and Metadata (read). It has no webhook and receives no event. It is meant to be
@@ -249,7 +256,16 @@ Beside the token, the page keeps in your browser the names of the repositories y
 plan you chose on the cost page.
 
 The aggregates the collector reads are as the section on field metrics says, whether or not you use
-the pages. The pages never take a Claude token and never show a repository's Claude secret; what
+the pages. The pages never show a repository's Claude secret, which GitHub never gives back. The
+one Claude token they take is one you paste into the Tokens page's "Add or renew a slot": the page
+seals it in your browser with your organization's public key from GitHub (for a personal account's
+repository, the repository's), the way GitHub's own secrets page does, and sends GitHub only that
+sealed box, which GitHub alone can open, as the secret SYMPHONY_CLAUDE_1 to SYMPHONY_CLAUDE_8 or
+CLAUDE_CODE_OAUTH_TOKEN, seen by the repositories you tick. It then writes, as organization (or
+repository) variables, the slot's label if you gave one and the list SYMPHONY_CLAUDE_ACCOUNTS. The
+token goes nowhere else: not to the sign-in service, not to the developer, not into the browser's
+storage, a log or the page; the page empties its box once the token is sealed. A slot is removed on
+GitHub under the organization's Settings, Secrets and variables, Actions. What
 they start, a worker's run or the Claude workflow's answer to a mention, runs on the token the
 repository holds, as the repository's own workflows do. To stop: press "Forget the token", which
 drops the token and the refresh token from the browser and, for a token from "Sign in with
@@ -290,7 +306,8 @@ holds it for one run and only where you installed it. They read your repository'
 adoption above says (the tree listing, a one-commit checkout of the default branch, and the few
 files named), never to keep or send it. They never write to a repository but the adoption's branch,
 pull request, labels, issue and settings, each of them yours to undo, and the README that begins a
-repository with no commit. They never read a Claude credential, and nothing here runs on
+repository with no commit. They never read a Claude credential (a token you paste into the Tokens page is sealed in your browser
+for GitHub, and neither App nor the developer can read it), and nothing here runs on
 anyone's Claude account but the one a project's own maintainer chooses to run the judge with.
 
 ## Uninstalling
@@ -309,6 +326,11 @@ Symphony is for people who administer GitHub repositories. It is not directed at
 A new version of this statement is published at https://openspineconsortium.com/symphony/apps-privacy.html
 and in the front door repository, github.com/OpenSpineConsortium/symphony-start, whose PRIVACY.md is
 this text.
+
+Version 10 adds SymphonyBoard's two organization permissions, Secrets and Variables (read and
+write), and the Tokens page's "Add or renew a slot", which seals a Claude token you paste in your
+browser and saves it, as you, as one of your organization's Actions secrets, with its label and
+the list of slots as variables. Nothing the developer receives or keeps changed.
 
 Version 9 says where a sign-in for one tab keeps its refresh token: in the open page's memory alone,
 never in the browser's storage, so that the renewals end once that page is closed, reloaded or
